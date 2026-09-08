@@ -15,6 +15,7 @@
 import type { BbPluginApi, PluginCliContext, PluginCliResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type { BlockRegistry } from "./blocks";
+import { findMissingModels, formatMissingModelWarnings } from "./models";
 import type { QuotaReader } from "./quota";
 import {
   permissionModeSchema,
@@ -190,40 +191,6 @@ async function readInvokingFile(
   return result.contentEncoding === "base64"
     ? Buffer.from(result.content, "base64").toString("utf8")
     : result.content;
-}
-
-// --- create/update model-warning check -----------------------------------
-// Warn, never block: an unreachable executionOptions call, or a provider
-// this bb doesn't know about, is silently skipped rather than treated as a
-// missing model.
-
-async function warnMissingModels(
-  bb: BbPluginApi,
-  candidates: readonly Candidate[],
-  warn: (message: string) => void,
-): Promise<void> {
-  const cache = new Map<string, Awaited<ReturnType<BbPluginApi["sdk"]["system"]["executionOptions"]>> | null>();
-  for (const candidate of candidates) {
-    let options = cache.get(candidate.provider);
-    if (options === undefined) {
-      try {
-        options = await bb.sdk.system.executionOptions({ providerId: candidate.provider });
-      } catch {
-        options = null;
-      }
-      cache.set(candidate.provider, options);
-    }
-    if (options === null) continue;
-    const providerEntry = options.providers.find((provider) => provider.id === candidate.provider);
-    if (providerEntry === undefined) continue;
-    const resolvedModel = resolveModel(candidate.model, candidate.reasoningLevel);
-    const known = [...options.models, ...options.selectedOnlyModels].some(
-      (model) => model.model === resolvedModel || model.id === resolvedModel,
-    );
-    if (!known) {
-      warn(`warning: ${candidate.provider} has no model "${resolvedModel}" in its live list`);
-    }
-  }
 }
 
 // --- instruction flags (create/update share the same three) -------------
@@ -412,8 +379,7 @@ async function cmdCreate(
   } satisfies Partial<Role>);
   const created = roles.store.create(role);
 
-  const warnings: string[] = [];
-  await warnMissingModels(bb, created.candidates, (message) => warnings.push(message));
+  const warnings = formatMissingModelWarnings(await findMissingModels(bb, created.candidates));
   const stderr = warnings.length === 0 ? undefined : `${warnings.join("\n")}\n`;
 
   const stdout = hasFlag(flags, "json") ? `${JSON.stringify(created)}\n` : `Created role "${created.id}"\n`;
@@ -442,8 +408,7 @@ async function cmdUpdate(
 
   const updated = roles.store.update(id, patch);
 
-  const warnings: string[] = [];
-  await warnMissingModels(bb, updated.candidates, (message) => warnings.push(message));
+  const warnings = formatMissingModelWarnings(await findMissingModels(bb, updated.candidates));
   const stderr = warnings.length === 0 ? undefined : `${warnings.join("\n")}\n`;
 
   const stdout = hasFlag(flags, "json") ? `${JSON.stringify(updated)}\n` : `Updated role "${updated.id}"\n`;
