@@ -38,16 +38,21 @@ fallback by hand.
 
 ## Everywhere else
 
-Every thread's instructions carry the cast, one line per role; a thread this
-plugin spawned also carries that role's own instruction, so it survives
-compaction and resume. Typing `@builder` in the composer hands the agent the
+Every thread's instructions carry the cast, one line per role — it is
+mandatory and always renders first; a thread this plugin spawned also
+carries that role's own instruction, in whatever budget is left under the
+4096-character cap. Typing `@builder` in the composer hands the agent the
 role's description and a ready `bb roles spawn` line. `bb roles export` and
 `bb roles import <file>` move a whole cast as one JSON document, so a cast
-can be shared, versioned or restored.
+can be shared, versioned or restored; import **replaces** the whole set —
+a role missing from the document is deleted, not left in place.
 
 ## CLI
 
 `bb roles list`, `show <id>`, `create`, `update`, `delete`, `export`,
 `import <file>` and `quota` manage the cast from a terminal or an agent
 thread; `create` and `update` warn, never block, when a candidate's model is
-missing from its provider's live model list.
+missing from its provider's live model list. `create`, `update` and `import`
+read any file argument from the invoking machine, not the server; an
+explicit `--machine <id-or-name>` names that host when there's no invoking
+thread to infer it from.

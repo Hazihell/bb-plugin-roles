@@ -6,26 +6,17 @@
 // the role store (roles/store.ts, seeded once from roles/seed.ts), live
 // provider quota (roles/quota.ts) and the held-block registry
 // (roles/blocks.ts) that back candidate selection (roles/select.ts).
-import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { createBlockRegistry } from "./roles/blocks";
 import { registerCli } from "./roles/cli";
+import { execFileText } from "./roles/exec";
 import { registerInstructions } from "./roles/instructions";
 import { registerMentions } from "./roles/mention";
 import { createQuotaReader } from "./roles/quota";
 import { createSpawner } from "./roles/spawn";
 import { createSpawnedRegistry } from "./roles/spawned";
 import { createRoleStore } from "./roles/store";
-
-function exec(command: string, args: string[]): Promise<{ stdout: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { encoding: "utf8" }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve({ stdout });
-    });
-  });
-}
 
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
@@ -47,10 +38,10 @@ export default async function plugin(bb: BbPluginApi) {
 
   const quota = createQuotaReader({
     sdk: bb.sdk,
-    exec,
+    exec: execFileText,
   });
 
-  const blocks = createBlockRegistry({ kv: bb.storage.kv });
+  const blocks = createBlockRegistry({ kv: bb.storage.kv, log: bb.log });
 
   // Builder B: spawn/respawn, instructions, mention
   const spawned = createSpawnedRegistry(bb);

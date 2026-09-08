@@ -42,8 +42,28 @@ describe("createRoleStore", () => {
     expect(targetStore.list()).toEqual(sourceStore.list());
   });
 
-  it("importAll upserts by id and keeps other roles", () => {
+  it("importAll upserts a role present in the document and updates its fields", () => {
     const { bb } = createFakePluginHost({ pluginId: "roles-test-c" });
+    const store = createRoleStore(bb);
+    store.seedOnce();
+    const before = store.list();
+
+    store.importAll({
+      version: 1,
+      roles: before.map((role) =>
+        role.id === "scout" ? { ...role, description: "A rewritten scout description." } : role,
+      ),
+    });
+
+    expect(store.list()).toHaveLength(5);
+    expect(store.get("scout")?.description).toBe(
+      "A rewritten scout description.",
+    );
+    expect(store.get("builder")).not.toBeNull();
+  });
+
+  it("importAll replaces the whole set: a role missing from the document is deleted", () => {
+    const { bb } = createFakePluginHost({ pluginId: "roles-test-replace" });
     const store = createRoleStore(bb);
     store.seedOnce();
     const before = store.list();
@@ -60,10 +80,57 @@ describe("createRoleStore", () => {
       ],
     });
 
-    expect(store.list()).toHaveLength(5);
+    expect(store.list()).toHaveLength(1);
     expect(store.get("scout")?.description).toBe(
       "A rewritten scout description.",
     );
-    expect(store.get("builder")).not.toBeNull();
+    expect(store.get("builder")).toBeNull();
+  });
+
+  it("import replaces positions with document order", () => {
+    const { bb } = createFakePluginHost({ pluginId: "roles-test-order" });
+    const store = createRoleStore(bb);
+    store.seedOnce();
+    const before = store.list();
+    const reversed = [...before].reverse();
+
+    store.importAll({ version: 1, roles: reversed });
+
+    expect(store.list().map((role) => role.id)).toEqual(reversed.map((role) => role.id));
+  });
+
+  it("seeded store with scout deleted, exported, then imported into a freshly-seeded host reproduces exactly those roles", () => {
+    const source = createFakePluginHost({ pluginId: "roles-test-import-source" });
+    const sourceStore = createRoleStore(source.bb);
+    sourceStore.seedOnce();
+    sourceStore.remove("scout");
+    const exported = sourceStore.exportAll();
+    expect(exported.roles.map((role) => role.id)).not.toContain("scout");
+
+    const target = createFakePluginHost({ pluginId: "roles-test-import-target" });
+    const targetStore = createRoleStore(target.bb);
+    targetStore.seedOnce(); // the normal plugin-load path: seed a fresh host first
+    targetStore.importAll(exported);
+
+    expect(targetStore.list()).toEqual(exported.roles);
+    expect(targetStore.get("scout")).toBeNull();
+  });
+
+  it("importAll into a database that was never seeded marks it seeded, so a later seedOnce() is a no-op", () => {
+    const { bb } = createFakePluginHost({ pluginId: "roles-test-import-unseeded" });
+    const store = createRoleStore(bb);
+    const doc = { version: 1 as const, roles: [
+      {
+        id: "custom",
+        description: "A hand-authored role.",
+        permissionMode: "full" as const,
+        candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" as const }],
+      },
+    ] };
+
+    store.importAll(doc); // no seedOnce() call before this
+    store.seedOnce(); // must be a no-op: the import already marked the database seeded
+
+    expect(store.list()).toEqual(doc.roles);
   });
 });

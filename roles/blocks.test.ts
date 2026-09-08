@@ -135,4 +135,54 @@ describe("createBlockRegistry", () => {
       await registry.isHeld("codex", { pool: poolWithHeadroom(1), fetchedAtMs: now }, 5),
     ).toBe(false);
   });
+
+  it("a malformed stored record is logged and treated as not held, and deleted", async () => {
+    const kv = makeKv();
+    await kv.set("blocks/codex", { providerId: "codex", observedAtMs: "not-a-number" });
+    const warnings: string[] = [];
+    const registry = createBlockRegistry({ kv, now: () => 0, log: { warn: (message) => warnings.push(message) } });
+
+    const held = await registry.isHeld("codex", { pool: poolWithHeadroom(1), fetchedAtMs: 0 }, 5);
+    expect(held).toBe(false);
+    expect(warnings.some((message) => message.includes("codex"))).toBe(true);
+    expect(await kv.get("blocks/codex")).toBeUndefined();
+  });
+
+  describe("heldUntil", () => {
+    it("returns null when there is no block", async () => {
+      const registry = createBlockRegistry({ kv: makeKv(), now: () => 0 });
+      expect(await registry.heldUntil("codex")).toBeNull();
+    });
+
+    it("returns the block's own reset time when it has one", async () => {
+      const kv = makeKv();
+      const registry = createBlockRegistry({ kv, now: () => 0 });
+      await registry.record("codex", 10_000);
+
+      expect(await registry.heldUntil("codex")).toEqual({ resetsAtMs: 10_000, hasResetTime: true });
+    });
+
+    it("returns observedAtMs + 1h and hasResetTime false when the block has no reset time", async () => {
+      let now = 5_000;
+      const kv = makeKv();
+      const registry = createBlockRegistry({ kv, now: () => now });
+      await registry.record("acp-antigravity", null);
+
+      now = 6_000;
+      expect(await registry.heldUntil("acp-antigravity")).toEqual({
+        resetsAtMs: 5_000 + HOUR,
+        hasResetTime: false,
+      });
+    });
+
+    it("returns null once a reset-time block's own reset has passed", async () => {
+      const kv = makeKv();
+      let now = 0;
+      const registry = createBlockRegistry({ kv, now: () => now });
+      await registry.record("codex", 1_000);
+
+      now = 1_000;
+      expect(await registry.heldUntil("codex")).toBeNull();
+    });
+  });
 });

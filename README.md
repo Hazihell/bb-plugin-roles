@@ -33,12 +33,13 @@ bb roles show <id> [--json]
 bb roles create --id <slug> --description <text>
   --candidate <provider>:<model>[:<level>] [--candidate ...]
   [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>]
+  [--machine <id-or-name>]
 bb roles update <id> [--description <text>] [--permission-mode <mode>]
   [--instruction <text> | --instruction-file <path> | --clear-instruction]
-  [--candidate <provider>:<model>[:<level>] ...]
-bb roles delete <id>
+  [--candidate <provider>:<model>[:<level>] ...] [--machine <id-or-name>]
+bb roles delete <id> [--json]
 bb roles export [--json]
-bb roles import <file>
+bb roles import <file> [--machine <id-or-name>] [--json]
 bb roles quota [--json]
 ```
 
@@ -46,7 +47,11 @@ bb roles quota [--json]
 `--environment` / `--new-environment` is omitted; with neither flag and no
 thread context to fall back on, it fails with a one-line error. `create` and
 `update` warn on stderr, never block, when a candidate's model is missing
-from its provider's live model list.
+from its provider's live model list. `--instruction-file` and `import`'s file
+argument are read on the INVOKING machine, never the server: `--machine
+<id-or-name>` names that host explicitly (it wins when given); otherwise the
+invoking thread's own environment supplies it, and with neither, the command
+exits 1 rather than guessing.
 
 ## Candidate selection
 
@@ -75,16 +80,20 @@ the dead child in place.
 ## Instructions and mentions
 
 Every thread's instructions carry a Cast section, one line per role, plus a
-`bb roles spawn` pointer; a thread this plugin spawned also carries that
-role's own `instruction`, so it survives compaction and resume. Typing
-`@<role>` in the composer hands the agent the role's description and a
-filled-in `bb roles spawn` line.
+`bb roles spawn` pointer — it is mandatory and is rendered first, so it is
+never dropped; a thread this plugin spawned also carries that role's own
+`instruction`, which gets whatever's left of the 4096-character budget,
+truncated with a trailing "…" when it doesn't fit. Typing `@<role>` in the
+composer hands the agent the role's description and a filled-in `bb roles
+spawn` line.
 
 ## Export / import
 
 `bb roles export` prints the whole cast as one JSON document (`{version: 1,
-roles: [...]}`); `bb roles import <file>` upserts by role id from that
-document, on the invoking machine's filesystem — never the server's.
+roles: [...]}`), on the invoking machine's filesystem — never the server's.
+`bb roles import <file>` **replaces** the whole cast with that document: a
+role not in the document is deleted, not merely left alone; positions follow
+document order.
 
 ## Install
 

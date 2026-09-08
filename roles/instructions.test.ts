@@ -93,6 +93,41 @@ describe("registerInstructions", () => {
     expect(text).toContain("Follow the plan exactly.");
   });
 
+  it("keeps the whole Cast under an 8000-char instruction, truncating the instruction instead", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
+    const store = createRoleStore(bb);
+    const longInstruction = `START-OF-INSTRUCTION ${"x".repeat(8000)}`;
+    store.create({
+      id: "scout",
+      description: "Read-only exploration.",
+      permissionMode: "full",
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    store.create({
+      id: "builder",
+      description: "Implementation work.",
+      permissionMode: "full",
+      instruction: longInstruction,
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    const spawned = createSpawnedRegistry(bb);
+    await spawned.put(spawnedRecord({ childThreadId: "th_child", roleId: "builder" }));
+    registerInstructions({ bb, store, spawned });
+
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_child",
+      projectId: "proj_1",
+    });
+
+    expect(text).not.toBeNull();
+    expect(text!.length).toBeLessThanOrEqual(4096);
+    // The Cast is never dropped: every role's line survives.
+    expect(text).toContain("- **scout** — Read-only exploration.");
+    expect(text).toContain("- **builder** — Implementation work.");
+    // The instruction's head is present; only its tail was cut.
+    expect(text).toContain("START-OF-INSTRUCTION");
+  });
+
   it("reflects a role store change without touching the database again", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
     const store = createRoleStore(bb);

@@ -5,8 +5,15 @@
 // `contributeInstructions` — which runs on the thread-start path and must be
 // synchronous — can answer without I/O. `load()` fills the map from KV once
 // at plugin start; every write goes through both.
+//
+// A stored row is untrusted input (an older/newer plugin version, or a hand
+// edit, could have written something that no longer matches this shape).
+// `load()` validates every row with zod and drops — logging a warning,
+// never adding to the in-memory map — any that fails; `get()` only ever
+// returns what `load()` or `put()` put there, so it needs no separate check.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { ReasoningLevel } from "./schema";
+import { z } from "zod";
+import { reasoningLevelSchema, type ReasoningLevel } from "./schema";
 
 export type SpawnedStage =
   | "active"
@@ -32,6 +39,30 @@ export interface SpawnedRecord {
   createdAtMs: number;
   updatedAtMs: number;
 }
+
+const spawnedStageSchema = z.enum([
+  "active",
+  "respawning",
+  "replaced",
+  "failed",
+  "exhausted",
+]);
+
+const spawnedRecordSchema = z.object({
+  childThreadId: z.string().min(1),
+  roleId: z.string().min(1),
+  candidateIndex: z.number().int().nonnegative(),
+  prompt: z.string(),
+  title: z.string().nullable(),
+  parentThreadId: z.string().nullable(),
+  environmentId: z.string().min(1),
+  reasoningOverride: reasoningLevelSchema.nullable(),
+  stage: spawnedStageSchema,
+  replacedBy: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAtMs: z.number(),
+  updatedAtMs: z.number(),
+});
 
 export interface SpawnedRegistry {
   /** Loads every `spawned/*` row from KV into memory. Call once at start. */
@@ -60,8 +91,14 @@ export function createSpawnedRegistry(bb: BbPluginApi): SpawnedRegistry {
   async function load(): Promise<void> {
     const keys = await bb.storage.kv.list(KEY_PREFIX);
     for (const key of keys) {
-      const record = await bb.storage.kv.get<SpawnedRecord>(key);
-      if (record !== undefined) byId.set(record.childThreadId, record);
+      const raw = await bb.storage.kv.get<unknown>(key);
+      if (raw === undefined) continue;
+      const parsed = spawnedRecordSchema.safeParse(raw);
+      if (!parsed.success) {
+        bb.log.warn(`dropping malformed spawned record at "${key}": ${parsed.error.message}`);
+        continue;
+      }
+      byId.set(parsed.data.childThreadId, parsed.data);
     }
   }
 

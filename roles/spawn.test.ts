@@ -50,6 +50,9 @@ function fakeBlocks(heldProviders: Set<string> = new Set()): FakeBlocks {
     async isHeld(providerId: string, _quotaForCandidate: QuotaForCandidate, _thresholdPercent: number) {
       return heldProviders.has(providerId);
     },
+    async heldUntil() {
+      return null;
+    },
   };
 }
 
@@ -318,5 +321,129 @@ describe("respawn watcher (turn.failed with a blocked rate limit)", () => {
     expect(sendCalls).toHaveLength(0);
     expect(archiveCalls).toHaveLength(0);
     expect(execCalls).toHaveLength(0);
+  });
+});
+
+describe("respawn robustness: nothing may reject out of turn.failed", () => {
+  const blockedEvent = makeTurnFailedEvent({
+    threadId: "th_child_1",
+    rateLimits: {
+      kind: "subscription-window",
+      overageReason: null,
+      overageStatus: null,
+      providerId: "p1",
+      reachedReason: null,
+      status: "blocked",
+      windows: [{ label: "5h", providerKey: null, resetsAtMs: 1000, status: "blocked" }],
+    },
+  });
+
+  function customSetup(opts: {
+    byProvider: Record<string, ProviderQuota>;
+    archiveImpl?: () => Promise<void>;
+    blocksRecordImpl?: () => Promise<void>;
+  }) {
+    const spawnCalls: unknown[] = [];
+    const sendCalls: unknown[] = [];
+    const archiveCalls: unknown[] = [];
+    let nextChildId = 1;
+
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "roles-test-robust",
+      sdk: {
+        threads: {
+          // biome-ignore lint: test double
+          spawn: async (args: any) => {
+            spawnCalls.push(args);
+            const id = `th_child_${nextChildId++}`;
+            return makeThreadResponse({ id, environmentId: `env_for_${id}` });
+          },
+          // biome-ignore lint: test double
+          send: async (args: any) => {
+            sendCalls.push(args);
+            return {} as never;
+          },
+          // biome-ignore lint: test double
+          archive: async (args: any) => {
+            archiveCalls.push(args);
+            if (opts.archiveImpl) await opts.archiveImpl();
+            return {} as never;
+          },
+        },
+        environments: {
+          get: async () => ({ projectId: "proj_1" }) as never,
+        },
+      },
+    });
+
+    const store = createRoleStore(bb);
+    store.create(builderRole);
+    const quota = fakeQuotaReader(opts.byProvider);
+    const blocks: BlockRegistry = {
+      async record() {
+        if (opts.blocksRecordImpl) await opts.blocksRecordImpl();
+      },
+      async isHeld() {
+        return false;
+      },
+      async heldUntil() {
+        return null;
+      },
+    };
+    const spawned = createSpawnedRegistry(bb);
+    const settings = { get: async () => ({ thresholdPercent: 5 }) };
+    const execFn = async () => ({ stdout: "" });
+    const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings, execFn });
+
+    return { harness, store, spawned, spawner, spawnCalls, sendCalls, archiveCalls };
+  }
+
+  it("an archive failure after a successful respawn keeps stage replaced and sends no second message", async () => {
+    const { harness, spawner, spawned, spawnCalls, sendCalls, archiveCalls } = customSetup({
+      byProvider: { p1: okQuota(), p2: okQuota() },
+      archiveImpl: async () => {
+        throw new Error("archive down");
+      },
+    });
+
+    await spawner.spawnByRole({ ...baseArgs, title: "T", parentThreadId: "th_parent" });
+    await harness.behavior.emitThreadEvent("turn.failed", blockedEvent);
+
+    expect(archiveCalls).toHaveLength(1); // attempted, and failed
+    expect(spawnCalls).toHaveLength(2); // the respawn itself succeeded
+    expect(sendCalls).toHaveLength(1); // exactly one message, not a second on the archive failure
+    const dead = spawned.get("th_child_1");
+    expect(dead?.stage).toBe("replaced");
+    expect(dead?.replacedBy).toBe("th_child_2");
+  });
+
+  it("blocks.record rejecting stages the record failed with one message and no respawn attempt", async () => {
+    const { harness, spawner, spawned, spawnCalls, sendCalls } = customSetup({
+      byProvider: { p1: okQuota(), p2: okQuota() },
+      blocksRecordImpl: async () => {
+        throw new Error("kv down");
+      },
+    });
+
+    await spawner.spawnByRole({ ...baseArgs, title: "T", parentThreadId: "th_parent" });
+    await harness.behavior.emitThreadEvent("turn.failed", blockedEvent);
+
+    expect(spawnCalls).toHaveLength(1); // no respawn attempt
+    expect(sendCalls).toHaveLength(1);
+    expect(spawned.get("th_child_1")?.stage).toBe("failed");
+  });
+
+  it("a role deleted before respawn stages the record failed with one message", async () => {
+    const { harness, spawner, store, spawned, spawnCalls, sendCalls } = customSetup({
+      byProvider: { p1: okQuota(), p2: okQuota() },
+    });
+
+    await spawner.spawnByRole({ ...baseArgs, title: "T", parentThreadId: "th_parent" });
+    store.remove("builder");
+    await harness.behavior.emitThreadEvent("turn.failed", blockedEvent);
+
+    expect(spawnCalls).toHaveLength(1); // no respawn attempt: the role is gone
+    expect(sendCalls).toHaveLength(1);
+    expect(spawned.get("th_child_1")?.stage).toBe("failed");
   });
 });

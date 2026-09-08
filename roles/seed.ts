@@ -69,7 +69,10 @@ export const seedRoles: Role[] = [
       {
         provider: "codex",
         model: "gpt-5.6-luna",
-        reasoningLevel: "medium",
+        // cast.md's shared Fallback line: "then Codex gpt-5.6-luna at that
+        // level" — the same level as the sonnet fallback just above, low
+        // for designer (medium for builder's own copy of this candidate).
+        reasoningLevel: "low",
       },
     ],
   },

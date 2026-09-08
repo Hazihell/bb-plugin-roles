@@ -25,8 +25,9 @@ named at the call site: the plugin picks the first candidate with quota and
 handles fallback on its own. Pass `--reasoning <level>` only to override
 every candidate's default level for one spawn — a harder or a trivial unit
 of work. The provider's own agent or subagent tool is not used, even for a
-read-only helper. Every seeded role runs at `--permission-mode full`; if this
-thread lacks full mode, ask the user to raise it first.
+read-only helper. Every child takes `--permission-mode full` (the role's
+permission mode; every seeded role is `full`); if this thread lacks full
+mode, ask the user to raise it first.
 
 Every spawn names where the child runs: `--environment <id>` for this
 thread's environment, or `--new-environment worktree --base-branch <ref>`

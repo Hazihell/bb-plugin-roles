@@ -80,4 +80,20 @@ describe("createSpawnedRegistry", () => {
     ]);
     expect([first, second].filter(Boolean)).toHaveLength(1);
   });
+
+  it("load drops a malformed record, logging a warning, instead of throwing", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
+    const good = makeRecord({ childThreadId: "th_good" });
+    await bb.storage.kv.set("spawned/th_good", good);
+    await bb.storage.kv.set("spawned/th_bad", { childThreadId: "th_bad", stage: "not-a-real-stage" });
+
+    const registry = createSpawnedRegistry(bb);
+    await registry.load();
+
+    expect(registry.list().map((r) => r.childThreadId)).toEqual(["th_good"]);
+    expect(registry.get("th_bad")).toBeNull();
+    expect(harness.logEntries.some((entry) => entry.level === "warn" && entry.message.includes("th_bad"))).toBe(
+      true,
+    );
+  });
 });

@@ -2,6 +2,11 @@
 // database. Two tables: `roles` (ordered rows, one JSON blob each) and
 // `roles_meta` (a single "seeded" flag so the seed cast is applied exactly
 // once, ever — even across "delete everything" and reload).
+//
+// `importAll` replaces the whole set rather than merging: a role missing
+// from the imported document is deleted, not left in place. It also marks
+// the database seeded, so a database that's never seeded but is imported
+// into directly doesn't get the seed cast layered on top later.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { roleSchema, type Role } from "./schema";
@@ -115,21 +120,38 @@ export function createRoleStore(bb: BbPluginApi): RoleStore {
     return { version: 1, roles: list() };
   }
 
+  /**
+   * Replaces the whole set: every role not in `doc` is deleted, the rest are
+   * upserted with positions taken from document order — one transaction.
+   * Also marks the database seeded, if it wasn't already, so an import into
+   * a fresh database (which may run before `seedOnce()` ever has) is never
+   * followed by the seed cast.
+   */
   function importAll(doc: RoleExport): void {
     const incoming = doc.roles.map((role) => roleSchema.parse(role));
-    const upsert = db.transaction((roles: Role[]) => {
-      for (const role of roles) {
-        const existing = db
-          .prepare(`SELECT position FROM roles WHERE id = ?`)
-          .get(role.id) as { position: number } | undefined;
-        const position = existing?.position ?? nextPosition();
+    const incomingIds = new Set(incoming.map((role) => role.id));
+
+    const replace = db.transaction((roles: Role[]) => {
+      const existingIds = (
+        db.prepare(`SELECT id FROM roles`).all() as { id: string }[]
+      ).map((row) => row.id);
+      for (const id of existingIds) {
+        if (!incomingIds.has(id)) {
+          db.prepare(`DELETE FROM roles WHERE id = ?`).run(id);
+        }
+      }
+      roles.forEach((role, position) => {
         db.prepare(
           `INSERT INTO roles (id, position, json) VALUES (?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET json = excluded.json`,
+           ON CONFLICT(id) DO UPDATE SET position = excluded.position, json = excluded.json`,
         ).run(role.id, position, JSON.stringify(role));
-      }
+      });
+      db.prepare(
+        `INSERT INTO roles_meta (key, value) VALUES ('seeded', '1')
+         ON CONFLICT(key) DO NOTHING`,
+      ).run();
     });
-    upsert(incoming);
+    replace(incoming);
     notify();
   }
 

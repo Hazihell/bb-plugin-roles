@@ -21,11 +21,17 @@ function fakeQuotaReader(byProvider: Record<string, ProviderQuota>): QuotaReader
   };
 }
 
-function fakeBlocks(heldProviders: Set<string>): BlockRegistry {
+function fakeBlocks(
+  heldProviders: Set<string>,
+  heldUntilByProvider: Map<string, { resetsAtMs: number; hasResetTime: boolean }> = new Map(),
+): BlockRegistry {
   return {
     async record() {},
     async isHeld(providerId: string, _quotaForCandidate: QuotaForCandidate, _thresholdPercent: number) {
       return heldProviders.has(providerId);
+    },
+    async heldUntil(providerId: string) {
+      return heldUntilByProvider.get(providerId) ?? null;
     },
   };
 }
@@ -131,5 +137,47 @@ describe("evaluateCandidates / selectCandidate", () => {
         "p-threshold m2: threshold (resets 2026-02-01T00:00:00Z)",
       ].join("\n"),
     );
+  });
+
+  it("reports the held block's own reset time, not the live window's, even when live windows are empty", async () => {
+    const quota = fakeQuotaReader({
+      "p-blocked": { status: "ok", pools: [], fetchedAtMs: 0 }, // no windows at all
+    });
+    const blockResetsAtMs = Date.parse("2026-03-01T00:00:00Z");
+    const blocks = fakeBlocks(
+      new Set(["p-blocked"]),
+      new Map([["p-blocked", { resetsAtMs: blockResetsAtMs, hasResetTime: true }]]),
+    );
+    const role: Role = {
+      id: "single",
+      description: "d",
+      permissionMode: "full",
+      candidates: [{ provider: "p-blocked", model: "m", reasoningLevel: "low" }],
+    };
+    const [evaluation] = await evaluateCandidates(role, { quota, blocks, thresholdPercent: 5 });
+    expect(evaluation!.usable).toBe(false);
+    expect(evaluation!.reason).toBe("blocked");
+    expect(evaluation!.resetsAt).toBe(new Date(blockResetsAtMs).toISOString());
+  });
+
+  it("reports 'earliest release' with the observedAtMs + 1h fallback when the block has no reset time", async () => {
+    const quota = fakeQuotaReader({
+      "p-blocked": { status: "ok", pools: [pool([{ label: "5h", remainingFraction: 1, resetsAt: null }])], fetchedAtMs: 0 },
+    });
+    const fallbackMs = Date.parse("2026-03-01T01:00:00Z");
+    const blocks = fakeBlocks(
+      new Set(["p-blocked"]),
+      new Map([["p-blocked", { resetsAtMs: fallbackMs, hasResetTime: false }]]),
+    );
+    const role: Role = {
+      id: "single",
+      description: "d",
+      permissionMode: "full",
+      candidates: [{ provider: "p-blocked", model: "m", reasoningLevel: "low" }],
+    };
+    const [evaluation] = await evaluateCandidates(role, { quota, blocks, thresholdPercent: 5 });
+    const iso = new Date(fallbackMs).toISOString();
+    expect(evaluation!.resetsAt).toBe(iso);
+    expect(evaluation!.detail).toBe(`held (no reset time; earliest release ${iso})`);
   });
 });

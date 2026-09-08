@@ -90,14 +90,32 @@ async function evaluateOne(
     opts.thresholdPercent,
   );
   if (held) {
+    // The block's own reset time (or, absent one, its observedAtMs + 1h
+    // earliest-release fallback) is what's reported here — not the live
+    // window's resetsAt, which may be empty or stale relative to the block.
+    const holdUntil = await opts.blocks.heldUntil(candidate.provider);
+    if (holdUntil === null) {
+      return {
+        candidate,
+        index,
+        usable: false,
+        reason: "blocked",
+        detail: `${candidate.provider} is held after an observed rate-limit block`,
+        remainingFraction: constrained?.remainingFraction ?? null,
+        resetsAt: constrained?.resetsAt ?? null,
+      };
+    }
+    const resetsAtIso = new Date(holdUntil.resetsAtMs).toISOString();
     return {
       candidate,
       index,
       usable: false,
       reason: "blocked",
-      detail: `${candidate.provider} is held after an observed rate-limit block`,
+      detail: holdUntil.hasResetTime
+        ? `${candidate.provider} is held after an observed rate-limit block`
+        : `held (no reset time; earliest release ${resetsAtIso})`,
       remainingFraction: constrained?.remainingFraction ?? null,
-      resetsAt: constrained?.resetsAt ?? null,
+      resetsAt: resetsAtIso,
     };
   }
 

@@ -8,6 +8,10 @@
 // server the CLI handler runs on, so those reads go through
 // `bb.sdk.files.read` with the invoking thread's host id rather than
 // `node:fs` (see the multi-machine rule in the plugin-authoring skill).
+// `--machine <id-or-name>`, on `create`, `update` and `import`, names that
+// host explicitly and wins over the invoking thread's own host; with
+// neither a thread nor `--machine` there is no host to read from, so the
+// command exits 1 rather than silently falling back to the primary host.
 import type { BbPluginApi, PluginCliContext, PluginCliResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type { BlockRegistry } from "./blocks";
@@ -137,9 +141,11 @@ function formatTable(headers: string[], rows: string[][]): string {
 }
 
 // --- invoking-machine file access ---------------------------------------
-// A thread id resolves to a host through its environment; no thread id (or
-// no environment on it) falls back to the primary host, same as an omitted
-// SDK hostId anywhere else in the plugin.
+// `--machine`, when given, names the host directly and wins. Otherwise a
+// thread id resolves to a host through its environment. With neither, there
+// is no host to read from — unlike an omitted SDK hostId elsewhere in the
+// plugin (which falls back to the primary host), a file read here has
+// nowhere sensible to fall back to, so it's a usage error instead.
 
 type InvokingThread = { environmentId: string | null; projectId: string };
 
@@ -148,16 +154,38 @@ async function getInvokingThread(bb: BbPluginApi, threadId: string): Promise<Inv
   return thread as InvokingThread;
 }
 
-async function resolveHostId(bb: BbPluginApi, ctx: PluginCliContext): Promise<string | undefined> {
-  if (ctx.threadId === undefined) return undefined;
+/** Resolves `--machine <id-or-name>` against `bb.sdk.hosts.list()`. */
+async function resolveMachineFlag(bb: BbPluginApi, raw: string): Promise<string> {
+  const hosts = await bb.sdk.hosts.list();
+  const byId = hosts.find((host) => host.id === raw);
+  if (byId !== undefined) return byId.id;
+  const byName = hosts.find((host) => host.name === raw);
+  if (byName !== undefined) return byName.id;
+  throw usageError(`no host matching --machine "${raw}"`);
+}
+
+async function resolveHostId(
+  bb: BbPluginApi,
+  ctx: PluginCliContext,
+  machineFlag: string | undefined,
+): Promise<string | undefined> {
+  if (machineFlag !== undefined) return resolveMachineFlag(bb, machineFlag);
+  if (ctx.threadId === undefined) {
+    throw usageError("no host context: pass --machine");
+  }
   const thread = await getInvokingThread(bb, ctx.threadId);
   if (thread.environmentId === null) return undefined;
   const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId });
   return (environment as { hostId?: string }).hostId;
 }
 
-async function readInvokingFile(bb: BbPluginApi, ctx: PluginCliContext, path: string): Promise<string> {
-  const hostId = await resolveHostId(bb, ctx);
+async function readInvokingFile(
+  bb: BbPluginApi,
+  ctx: PluginCliContext,
+  path: string,
+  machineFlag: string | undefined,
+): Promise<string> {
+  const hostId = await resolveHostId(bb, ctx, machineFlag);
   const result = await bb.sdk.files.read({ hostId, path });
   return result.contentEncoding === "base64"
     ? Buffer.from(result.content, "base64").toString("utf8")
@@ -211,7 +239,7 @@ async function resolveInstructionFlag(
     throw usageError("pass only one of --instruction or --instruction-file");
   }
   if (inline !== undefined) return inline;
-  if (filePath !== undefined) return readInvokingFile(bb, ctx, filePath);
+  if (filePath !== undefined) return readInvokingFile(bb, ctx, filePath, flagValue(flags, "machine"));
   return undefined;
 }
 
@@ -229,7 +257,9 @@ async function resolveInstructionPatch(
   }
   if (clear) return { set: true, value: undefined };
   if (inline !== undefined) return { set: true, value: inline };
-  if (filePath !== undefined) return { set: true, value: await readInvokingFile(bb, ctx, filePath) };
+  if (filePath !== undefined) {
+    return { set: true, value: await readInvokingFile(bb, ctx, filePath, flagValue(flags, "machine")) };
+  }
   return { set: false, value: undefined };
 }
 
@@ -420,15 +450,20 @@ async function cmdUpdate(
   return { exitCode: 0, stdout, stderr };
 }
 
-function cmdDelete(positionals: string[], roles: RolesDeps): PluginCliResult {
+function cmdDelete(positionals: string[], flags: Map<string, string[]>, roles: RolesDeps): PluginCliResult {
   const id = positionals[0];
   if (id === undefined) throw usageError("delete requires an id");
   const removed = roles.store.remove(id);
   if (!removed) throw usageError(`No role with id "${id}"`);
+  if (hasFlag(flags, "json")) {
+    return { exitCode: 0, stdout: `${JSON.stringify({ id, deleted: true })}\n` };
+  }
   return { exitCode: 0, stdout: `Deleted role "${id}"\n` };
 }
 
 // --- export / import ----------------------------------------------------
+// import REPLACES the whole cast (roles/store.ts importAll): a role not in
+// the document is deleted, not merely left alone.
 
 function cmdExport(roles: RolesDeps): PluginCliResult {
   const doc = roles.store.exportAll();
@@ -437,13 +472,14 @@ function cmdExport(roles: RolesDeps): PluginCliResult {
 
 async function cmdImport(
   positionals: string[],
+  flags: Map<string, string[]>,
   ctx: PluginCliContext,
   bb: BbPluginApi,
   roles: RolesDeps,
 ): Promise<PluginCliResult> {
   const path = positionals[0];
   if (path === undefined) throw usageError("import requires a file path");
-  const raw = await readInvokingFile(bb, ctx, path);
+  const raw = await readInvokingFile(bb, ctx, path, flagValue(flags, "machine"));
 
   let parsed: unknown;
   try {
@@ -452,7 +488,18 @@ async function cmdImport(
     throw usageError(`invalid JSON in "${path}": ${error instanceof Error ? error.message : String(error)}`);
   }
   const doc = roleExportSchema.parse(parsed);
+  const beforeIds = new Set(roles.store.list().map((role) => role.id));
   roles.store.importAll(doc);
+  const importedIds = doc.roles.map((role) => role.id);
+  const importedIdSet = new Set(importedIds);
+  const removed = [...beforeIds].filter((id) => !importedIdSet.has(id)).length;
+
+  if (hasFlag(flags, "json")) {
+    return {
+      exitCode: 0,
+      stdout: `${JSON.stringify({ imported: importedIds.length, removed, roles: importedIds })}\n`,
+    };
+  }
   return { exitCode: 0, stdout: `Imported ${doc.roles.length} role(s) from ${path}\n` };
 }
 
@@ -546,11 +593,11 @@ async function runRolesCli(
       case "update":
         return await cmdUpdate(positionals, flags, ctx, bb, roles);
       case "delete":
-        return cmdDelete(positionals, roles);
+        return cmdDelete(positionals, flags, roles);
       case "export":
         return cmdExport(roles);
       case "import":
-        return await cmdImport(positionals, ctx, bb, roles);
+        return await cmdImport(positionals, flags, ctx, bb, roles);
       case "quota":
         return await cmdQuota(flags, roles);
       default:
@@ -593,17 +640,21 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
         name: "create",
         summary: "Create a role.",
         usage:
-          'bb roles create --id <slug> --description <text> --candidate <provider>:<model>[:<level>] [--candidate ...] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>]',
+          'bb roles create --id <slug> --description <text> --candidate <provider>:<model>[:<level>] [--candidate ...] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>] [--machine <id-or-name>]',
       },
       {
         name: "update",
         summary: "Update a role; --candidate replaces the whole list.",
         usage:
-          'bb roles update <id> [--description <text>] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path> | --clear-instruction] [--candidate <provider>:<model>[:<level>] ...]',
+          'bb roles update <id> [--description <text>] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path> | --clear-instruction] [--candidate <provider>:<model>[:<level>] ...] [--machine <id-or-name>]',
       },
-      { name: "delete", summary: "Delete a role.", usage: "bb roles delete <id>" },
+      { name: "delete", summary: "Delete a role.", usage: "bb roles delete <id> [--json]" },
       { name: "export", summary: "Export every role as one JSON document.", usage: "bb roles export [--json]" },
-      { name: "import", summary: "Import roles from a JSON file.", usage: "bb roles import <file>" },
+      {
+        name: "import",
+        summary: "Import roles from a JSON file; replaces the whole cast.",
+        usage: "bb roles import <file> [--machine <id-or-name>] [--json]",
+      },
       {
         name: "quota",
         summary: "Show every candidate of every role with live quota and skip status.",

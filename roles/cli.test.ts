@@ -38,6 +38,9 @@ function fakeBlocks(held: Set<string> = new Set()): BlockRegistry {
     async isHeld(providerId: string, _quotaForCandidate: QuotaForCandidate, _thresholdPercent: number) {
       return held.has(providerId);
     },
+    async heldUntil() {
+      return null;
+    },
   };
 }
 
@@ -299,8 +302,23 @@ describe("bb roles create / update / delete", () => {
   });
 });
 
+// biome-ignore lint: test double, `Host` shape isn't the point
+function fakeHost(id: string, name: string): any {
+  return {
+    id,
+    name,
+    createdAt: 0,
+    updatedAt: 0,
+    lastSeenAt: null,
+    lastRejectedProtocolVersion: null,
+    maxPermissionMode: "full",
+    status: "connected",
+    type: "persistent",
+  };
+}
+
 describe("bb roles export / import", () => {
-  it("export then import on a fresh host reproduces the roles", async () => {
+  it("export then import via --machine reproduces the roles", async () => {
     const source = setup();
     source.store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
 
@@ -309,6 +327,10 @@ describe("bb roles export / import", () => {
 
     const target = setup({
       sdk: {
+        hosts: {
+          // biome-ignore lint: test double
+          list: async () => [fakeHost("host_1", "laptop")],
+        },
         files: {
           // biome-ignore lint: test double
           read: async (args: any) => ({
@@ -322,10 +344,96 @@ describe("bb roles export / import", () => {
       },
     });
 
-    const imported = await target.harness.behavior.runCli(["import", "/tmp/roles.json"], {});
+    const imported = await target.harness.behavior.runCli(
+      ["import", "/tmp/roles.json", "--machine", "host_1"],
+      {},
+    );
     expect(imported.exitCode).toBe(0);
     expect(imported.stdout).toContain("Imported 1 role(s)");
     expect(target.store.list()).toEqual(source.store.list());
+  });
+
+  it("import replaces the whole set: a role missing from the document is deleted", async () => {
+    const target = setup({
+      sdk: {
+        hosts: {
+          // biome-ignore lint: test double
+          list: async () => [fakeHost("host_1", "laptop")],
+        },
+        files: {
+          // biome-ignore lint: test double
+          read: async () => ({
+            content: JSON.stringify({
+              version: 1,
+              roles: [{ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] }],
+            }),
+            contentEncoding: "utf8",
+            path: "/tmp/roles.json",
+            sha256: "x",
+            sizeBytes: 0,
+          }),
+        },
+      },
+    });
+    target.store.create({ id: "scout", description: "Scouts.", permissionMode: "full", candidates: [builderCandidate] });
+    target.store.create({ id: "builder", description: "Old.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await target.harness.behavior.runCli(
+      ["import", "/tmp/roles.json", "--machine", "host_1", "--json"],
+      {},
+    );
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ imported: 1, removed: 1, roles: ["builder"] });
+    expect(target.store.get("scout")).toBeNull();
+    expect(target.store.get("builder")?.description).toBe("Builds.");
+  });
+
+  it("import without a thread and without --machine exits 1", async () => {
+    const { harness } = setup();
+    const result = await harness.behavior.runCli(["import", "/tmp/roles.json"], {});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("no host context: pass --machine");
+  });
+
+  it("import --machine reads through bb.sdk.files.read for that host", async () => {
+    // biome-ignore lint: test double
+    const readCalls: any[] = [];
+    const { harness } = setup({
+      sdk: {
+        hosts: {
+          // biome-ignore lint: test double
+          list: async () => [fakeHost("host_1", "laptop")],
+        },
+        files: {
+          // biome-ignore lint: test double
+          read: async (args: any) => {
+            readCalls.push(args);
+            return {
+              content: JSON.stringify({ version: 1, roles: [] }),
+              contentEncoding: "utf8",
+              path: args.path,
+              sha256: "x",
+              sizeBytes: 0,
+            };
+          },
+        },
+      },
+    });
+
+    const result = await harness.behavior.runCli(["import", "/tmp/roles.json", "--machine", "host_1"], {});
+    expect(result.exitCode).toBe(0);
+    expect(readCalls).toEqual([{ hostId: "host_1", path: "/tmp/roles.json" }]);
+  });
+});
+
+describe("bb roles delete --json", () => {
+  it("prints { id, deleted: true }", async () => {
+    const { harness, store } = setup();
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await harness.behavior.runCli(["delete", "builder", "--json"], {});
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ id: "builder", deleted: true });
   });
 });
 
