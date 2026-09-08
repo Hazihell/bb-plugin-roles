@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { createBlockRegistry } from "./roles/blocks";
+import { registerCli } from "./roles/cli";
 import { registerInstructions } from "./roles/instructions";
 import { registerMentions } from "./roles/mention";
 import { createQuotaReader } from "./roles/quota";
@@ -60,8 +61,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Builder C: CLI
   const roles = { store, quota, blocks, spawner, settings, spawned };
-  void roles;
-  // registerCli(bb, roles);
+  registerCli(bb, roles);
 
   bb.onDispose(() => {
     bb.log.info("disposed");

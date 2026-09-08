@@ -3,6 +3,7 @@
 // `roles_meta` (a single "seeded" flag so the seed cast is applied exactly
 // once, ever — even across "delete everything" and reload).
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import { roleSchema, type Role } from "./schema";
 import { seedRoles } from "./seed";
 
@@ -10,6 +11,12 @@ export interface RoleExport {
   version: 1;
   roles: Role[];
 }
+
+/** Validates a parsed `roles import` document before it reaches `importAll`. */
+export const roleExportSchema = z.object({
+  version: z.literal(1),
+  roles: z.array(roleSchema),
+});
 
 export type RoleChangeListener = () => void;
 
