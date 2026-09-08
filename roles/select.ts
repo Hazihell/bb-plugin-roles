@@ -7,6 +7,15 @@ import type { BlockRegistry } from "./blocks";
 
 export type SkipReason = "threshold" | "status" | "blocked";
 
+/**
+ * What `resetsAt` means: `"reset"` is a reported reset time after which the
+ * window (or block) is expected to be open again; `"earliest-release"` is
+ * only the earliest a held-with-no-reset-time block can lift — fresh
+ * headroom is still required after that time, so it may already be past and
+ * still held; `"unknown"` means no time is known at all.
+ */
+export type ResetKind = "reset" | "earliest-release" | "unknown";
+
 export interface CandidateEvaluation {
   candidate: Candidate;
   index: number;
@@ -15,6 +24,7 @@ export interface CandidateEvaluation {
   detail: string;
   remainingFraction: number | null;
   resetsAt: string | null;
+  resetKind: ResetKind;
 }
 
 export interface EvaluateOptions {
@@ -43,6 +53,11 @@ function formatPercent(fraction: number | null): string {
   return fraction === null ? "unknown" : `${Math.round(fraction * 100)}%`;
 }
 
+/** A live window's own resetsAt is a reported reset time, or nothing known. */
+function resetKindFor(resetsAt: string | null): ResetKind {
+  return resetsAt === null ? "unknown" : "reset";
+}
+
 async function evaluateOne(
   candidate: Candidate,
   index: number,
@@ -58,6 +73,7 @@ async function evaluateOne(
       detail: `${candidate.provider} status is ${quota.status}`,
       remainingFraction: null,
       resetsAt: null,
+      resetKind: "unknown",
     };
   }
 
@@ -81,6 +97,7 @@ async function evaluateOne(
       detail: `remaining ${formatPercent(constrained?.remainingFraction ?? null)} at or below the ${opts.thresholdPercent}% threshold`,
       remainingFraction: constrained?.remainingFraction ?? null,
       resetsAt: constrained?.resetsAt ?? null,
+      resetKind: resetKindFor(constrained?.resetsAt ?? null),
     };
   }
 
@@ -103,6 +120,7 @@ async function evaluateOne(
         detail: `${candidate.provider} is held after an observed rate-limit block`,
         remainingFraction: constrained?.remainingFraction ?? null,
         resetsAt: constrained?.resetsAt ?? null,
+        resetKind: resetKindFor(constrained?.resetsAt ?? null),
       };
     }
     const resetsAtIso = new Date(holdUntil.resetsAtMs).toISOString();
@@ -116,6 +134,7 @@ async function evaluateOne(
         : `held (no reset time; earliest release ${resetsAtIso})`,
       remainingFraction: constrained?.remainingFraction ?? null,
       resetsAt: resetsAtIso,
+      resetKind: holdUntil.hasResetTime ? "reset" : "earliest-release",
     };
   }
 
@@ -126,6 +145,7 @@ async function evaluateOne(
     detail: "usable",
     remainingFraction: constrained?.remainingFraction ?? null,
     resetsAt: constrained?.resetsAt ?? null,
+    resetKind: resetKindFor(constrained?.resetsAt ?? null),
   };
 }
 
@@ -157,13 +177,23 @@ export async function selectCandidate(
   );
 }
 
-/** One line per candidate: "<provider> <model>: <reason> (resets <iso|unknown>)". */
+/** The `(...)` suffix naming when a candidate is expected to become usable. */
+export function formatResetSuffix(evaluation: Pick<CandidateEvaluation, "resetsAt" | "resetKind">): string {
+  if (evaluation.resetKind === "earliest-release" && evaluation.resetsAt !== null) {
+    return `held, earliest release ${evaluation.resetsAt}, needs fresh headroom`;
+  }
+  if (evaluation.resetKind === "reset" && evaluation.resetsAt !== null) {
+    return `resets ${evaluation.resetsAt}`;
+  }
+  return "resets unknown";
+}
+
+/** One line per candidate: "<provider> <model>: <reason> (<reset suffix>)". */
 export function formatRefusal(evaluations: CandidateEvaluation[]): string {
   return evaluations
     .map((evaluation) => {
       const reason = evaluation.reason ?? "unusable";
-      const resets = evaluation.resetsAt ?? "unknown";
-      return `${evaluation.candidate.provider} ${evaluation.candidate.model}: ${reason} (resets ${resets})`;
+      return `${evaluation.candidate.provider} ${evaluation.candidate.model}: ${reason} (${formatResetSuffix(evaluation)})`;
     })
     .join("\n");
 }

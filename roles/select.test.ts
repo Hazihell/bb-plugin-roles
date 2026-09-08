@@ -178,6 +178,27 @@ describe("evaluateCandidates / selectCandidate", () => {
     const [evaluation] = await evaluateCandidates(role, { quota, blocks, thresholdPercent: 5 });
     const iso = new Date(fallbackMs).toISOString();
     expect(evaluation!.resetsAt).toBe(iso);
+    expect(evaluation!.resetKind).toBe("earliest-release");
     expect(evaluation!.detail).toBe(`held (no reset time; earliest release ${iso})`);
+  });
+
+  it("formats the three refusal renderings: reset, earliest release, and unknown", () => {
+    const iso = "2026-02-01T00:00:00Z";
+    const candidate = { provider: "p", model: "m", reasoningLevel: "low" as const };
+    expect(
+      formatRefusal([
+        { candidate, index: 0, usable: false, reason: "threshold", detail: "d", remainingFraction: 0, resetsAt: iso, resetKind: "reset" },
+      ]),
+    ).toBe(`p m: threshold (resets ${iso})`);
+    expect(
+      formatRefusal([
+        { candidate, index: 0, usable: false, reason: "blocked", detail: "d", remainingFraction: null, resetsAt: iso, resetKind: "earliest-release" },
+      ]),
+    ).toBe(`p m: blocked (held, earliest release ${iso}, needs fresh headroom)`);
+    expect(
+      formatRefusal([
+        { candidate, index: 0, usable: false, reason: "status", detail: "d", remainingFraction: null, resetsAt: null, resetKind: "unknown" },
+      ]),
+    ).toBe("p m: status (resets unknown)");
   });
 });

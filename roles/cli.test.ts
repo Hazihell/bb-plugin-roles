@@ -32,14 +32,17 @@ function fakeQuotaReader(byProvider: Record<string, ProviderQuota>): QuotaReader
   };
 }
 
-function fakeBlocks(held: Set<string> = new Set()): BlockRegistry {
+function fakeBlocks(
+  held: Set<string> = new Set(),
+  heldUntilByProvider: Map<string, { resetsAtMs: number; hasResetTime: boolean }> = new Map(),
+): BlockRegistry {
   return {
     async record() {},
     async isHeld(providerId: string, _quotaForCandidate: QuotaForCandidate, _thresholdPercent: number) {
       return held.has(providerId);
     },
-    async heldUntil() {
-      return null;
+    async heldUntil(providerId: string) {
+      return heldUntilByProvider.get(providerId) ?? null;
     },
   };
 }
@@ -49,6 +52,7 @@ function setup(opts: {
   sdk?: any;
   quotaByProvider?: Record<string, ProviderQuota>;
   held?: Set<string>;
+  heldUntil?: Map<string, { resetsAtMs: number; hasResetTime: boolean }>;
 } = {}) {
   const { bb, harness } = createFakePluginHost({
     pluginId: "roles-cli-test",
@@ -56,7 +60,7 @@ function setup(opts: {
   });
   const store = createRoleStore(bb);
   const quota = fakeQuotaReader(opts.quotaByProvider ?? {});
-  const blocks = fakeBlocks(opts.held);
+  const blocks = fakeBlocks(opts.held, opts.heldUntil);
   const spawned = createSpawnedRegistry(bb);
   const settings = { get: async () => ({ thresholdPercent: 5 }) };
   const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
@@ -494,5 +498,34 @@ describe("bb roles quota", () => {
         reason: "threshold",
       }),
     ]);
+  });
+
+  it("shows the earliest-release wording for a held block with no reset time, in text and JSON", async () => {
+    const fallbackMs = Date.parse("2026-03-01T01:00:00Z");
+    const iso = new Date(fallbackMs).toISOString();
+    const { harness, store } = setup({
+      quotaByProvider: { p1: okQuota() },
+      held: new Set(["p1"]),
+      heldUntil: new Map([["p1", { resetsAtMs: fallbackMs, hasResetTime: false }]]),
+    });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const jsonResult = await harness.behavior.runCli(["quota", "--json"], {});
+    expect(jsonResult.exitCode).toBe(0);
+    const rows = JSON.parse(jsonResult.stdout);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        role: "builder",
+        provider: "p1",
+        resetsAt: iso,
+        resetKind: "earliest-release",
+        skip: true,
+        reason: "blocked",
+      }),
+    ]);
+
+    const textResult = await harness.behavior.runCli(["quota"], {});
+    expect(textResult.exitCode).toBe(0);
+    expect(textResult.stdout).toContain(`held, earliest release ${iso}, needs fresh headroom`);
   });
 });

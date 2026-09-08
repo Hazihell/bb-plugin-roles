@@ -28,7 +28,10 @@ a threshold setting (default 5%), when its status can't run (unauthenticated,
 expired, not installed), or when an observed rate-limit block is still held —
 a block holds until its reported reset time, or with no reset time until an
 hour has passed and a fresh usage read shows headroom. When every candidate
-is skipped, `spawn` refuses with one line per candidate and its reset time.
+is skipped, `spawn` refuses with one line per candidate and its reset time —
+or, for a held block with no reported reset time, its earliest release time,
+flagged as such since fresh headroom is still required and the time may
+already be past.
 
 When a spawned child later hits a usage limit mid-turn, the plugin cancels
 its pending retry, respawns the next candidate with the same brief,

@@ -65,7 +65,9 @@ observed rate-limit block is still held for that provider. A block holds
 until its reported reset time; with no reset time, it holds until an hour has
 passed *and* a fresh usage read shows headroom on every window. When every
 candidate is skipped, `spawn` refuses: exit 1, one line per candidate naming
-its reset time.
+its reset time — or, for a held block with no reported reset time, the
+earliest release time and a note that fresh headroom is still required, since
+that time may already be past and the block still held.
 
 ## Respawn on a usage limit
 

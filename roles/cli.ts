@@ -26,7 +26,7 @@ import {
   type ReasoningLevel,
   type Role,
 } from "./schema";
-import { evaluateCandidates, formatRefusal } from "./select";
+import { evaluateCandidates, formatRefusal, formatResetSuffix, type ResetKind } from "./select";
 import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./spawn";
 import type { SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
@@ -517,6 +517,7 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
     model: string;
     remainingFraction: number | null;
     resetsAt: string | null;
+    resetKind: ResetKind;
     status: string;
     skip: boolean;
     reason: string | null;
@@ -543,6 +544,7 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
         model: resolveModel(evaluation.candidate.model, evaluation.candidate.reasoningLevel),
         remainingFraction: evaluation.remainingFraction,
         resetsAt: evaluation.resetsAt,
+        resetKind: evaluation.resetKind,
         status,
         skip: !evaluation.usable,
         reason: evaluation.usable ? null : (evaluation.reason ?? "unusable"),
@@ -559,7 +561,7 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
     row.provider,
     row.model,
     row.remainingFraction === null ? "?" : `${Math.round(row.remainingFraction * 100)}%`,
-    row.resetsAt ?? "-",
+    formatResetSuffix(row),
     row.status,
     row.skip ? `yes (${row.reason})` : "no",
   ]);
