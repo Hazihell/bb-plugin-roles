@@ -8,8 +8,8 @@
 import { loadPluginApp, renderSlot, type PluginRpcTestHandlers } from "@get-bb/plugin-sdk/testing/app";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { rpcContract, SaveRoleInput } from "./roles/rpc";
-import type { Role } from "./roles/schema";
+import type { rpcContract } from "./roles/rpc";
+import type { Role, SaveRoleInput } from "./roles/schema";
 
 // This suite isn't run with vitest's `globals` option, so Testing Library's
 // automatic per-test cleanup never registers — without this, each test's
