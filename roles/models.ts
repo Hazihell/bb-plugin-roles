@@ -62,3 +62,37 @@ export function formatUnknownModelMessage(result: ModelCheckResult): string {
 export function formatMissingModelWarnings(results: readonly ModelCheckResult[]): string[] {
   return results.filter((result) => !result.known).map((result) => `warning: ${formatUnknownModelMessage(result)}`);
 }
+
+export interface ProviderModels {
+  provider: string;
+  /** Model ids as a candidate names them, e.g. "claude-opus-5[1m]". */
+  models: string[];
+}
+
+/**
+ * The pickable model list per provider, for the settings form's model
+ * picker. Same "no information" rule as `findMissingModels`: a provider
+ * whose live list can't be read reports an empty array, which the form
+ * reads as "let the user type" rather than "this provider has no models".
+ */
+export async function listProviderModels(bb: BbPluginApi): Promise<ProviderModels[]> {
+  let roster: Awaited<ReturnType<BbPluginApi["sdk"]["system"]["executionOptions"]>>;
+  try {
+    roster = await bb.sdk.system.executionOptions();
+  } catch {
+    return [];
+  }
+  const results: ProviderModels[] = [];
+  for (const provider of roster.providers) {
+    let options = roster;
+    try {
+      options = await bb.sdk.system.executionOptions({ providerId: provider.id });
+    } catch {
+      results.push({ provider: provider.id, models: [] });
+      continue;
+    }
+    const models = [...options.models, ...options.selectedOnlyModels].map((model) => model.model);
+    results.push({ provider: provider.id, models: [...new Set(models)] });
+  }
+  return results;
+}

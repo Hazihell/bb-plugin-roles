@@ -2,9 +2,13 @@
 // controlled dialog. `target` null closes it; `{ mode: "create" }` or
 // `{ mode: "edit", role }` opens it with a fresh form.
 //
-// While editing, candidate rows are checked against live provider models on
-// a debounce (`checkModels`) so an unknown model shows a marker next to the
-// row before save — `saveRole` itself never blocks on this check.
+// Provider and model are pickers over the live roster (`listProviderModels`)
+// so a typo can't invent a model, with a "Custom…" escape for templated ids
+// like "gemini-3.8-flash-{level}" and for a provider whose list can't be read.
+//
+// Rows are still checked against live provider models on a debounce
+// (`checkModels`) so an unknown model — a custom one, or one that vanished
+// from the roster — shows a marker before save; `saveRole` never blocks on it.
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -20,6 +24,8 @@ export type RoleFormTarget = { mode: "create" } | { mode: "edit"; role: Role };
 
 const REASONING_LEVELS = reasoningLevelSchema.options;
 const PERMISSION_MODES: readonly PermissionMode[] = ["accept-edits", "auto", "full"];
+/** Sentinel option that switches a row's model field to free text. */
+const CUSTOM_MODEL = "__custom__";
 const EMPTY_CANDIDATE: Candidate = { provider: "", model: "", reasoningLevel: "medium" };
 const FIELD_CLASS =
   "flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -72,6 +78,10 @@ function RoleForm({
   const [unknownIndices, setUnknownIndices] = useState<ReadonlySet<number>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Provider -> pickable model ids. A provider missing from this map (or
+  // mapped to an empty list) has no readable live list, and its rows fall
+  // back to a free-text model field rather than an empty picker.
+  const [modelsByProvider, setModelsByProvider] = useState<ReadonlyMap<string, readonly string[]>>(new Map());
   // Bumped on every check this effect starts; a response only applies if
   // it's still the latest one requested, so a stale reply that resolves
   // after a newer request can't clobber its result.
@@ -117,6 +127,22 @@ function RoleForm({
       checkGenerationRef.current += 1;
     };
   }, [candidates, rpc]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void rpc
+      .call("listProviderModels", null)
+      .then((entries) => {
+        if (cancelled) return;
+        setModelsByProvider(new Map(entries.map((entry) => [entry.provider, entry.models])));
+      })
+      .catch(() => {
+        // No roster: every model field stays free text.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rpc]);
 
   function updateCandidate(index: number, patch: Partial<Candidate>) {
     setCandidates((current) => current.map((candidate, i) => (i === index ? { ...candidate, ...patch } : candidate)));
@@ -247,6 +273,7 @@ function RoleForm({
               index={index}
               total={candidates.length}
               providers={providers}
+              models={modelsByProvider.get(candidate.provider) ?? []}
               unknown={unknownIndices.has(index)}
               onChange={(patch) => updateCandidate(index, patch)}
               onRemove={() => removeCandidate(index)}
@@ -280,6 +307,7 @@ function CandidateRow({
   index,
   total,
   providers,
+  models,
   unknown,
   onChange,
   onRemove,
@@ -290,13 +318,25 @@ function CandidateRow({
   index: number;
   total: number;
   providers: PluginProvidersState["providers"];
+  models: readonly string[];
   unknown: boolean;
   onChange: (patch: Partial<Candidate>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const datalistId = `role-form-providers-${index}`;
+  // A stored value the live roster doesn't list (a "{level}" template, a
+  // model that was removed, a provider bb no longer knows) is offered as an
+  // extra option rather than dropped — opening the form never rewrites a row.
+  const [custom, setCustom] = useState(() => models.length > 0 && !models.includes(candidate.model));
+  const providerIds = providers.map((provider) => provider.id);
+  const providerOptions =
+    candidate.provider !== "" && !providerIds.includes(candidate.provider)
+      ? [candidate.provider, ...providerIds]
+      : providerIds;
+  const modelOptions =
+    candidate.model !== "" && !models.includes(candidate.model) ? [candidate.model, ...models] : models;
+  const pickModel = models.length > 0 && !custom;
   return (
     <div className="flex flex-wrap items-start gap-1.5">
       {unknown ? (
@@ -309,30 +349,83 @@ function CandidateRow({
         <span className="mt-2 size-3.5 shrink-0" aria-hidden />
       )}
       <div className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-start gap-1.5">
-        <Input
-          aria-label={`Candidate ${index + 1} provider`}
-          className="min-w-0 flex-[1_1_7rem]"
-          list={datalistId}
-          value={candidate.provider}
-          onChange={(event) => onChange({ provider: event.target.value })}
-          placeholder="provider"
-          required
-        />
-        <datalist id={datalistId}>
-          {providers.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.displayName}
-            </option>
-          ))}
-        </datalist>
-        <Input
-          aria-label={`Candidate ${index + 1} model`}
-          className="min-w-0 flex-[2_1_9rem]"
-          value={candidate.model}
-          onChange={(event) => onChange({ model: event.target.value })}
-          placeholder="model, may contain {level}"
-          required
-        />
+        {providers.length > 0 ? (
+          <select
+            aria-label={`Candidate ${index + 1} provider`}
+            className={cn(FIELD_CLASS, "min-w-0 flex-[1_1_7rem]")}
+            value={candidate.provider}
+            // Switching provider invalidates the model: its ids belong to
+            // the provider that was chosen, so the row asks for a new one.
+            onChange={(event) => {
+              setCustom(false);
+              onChange({ provider: event.target.value, model: "" });
+            }}
+            required
+          >
+            <option value="">provider</option>
+            {providerOptions.map((providerId) => (
+              <option key={providerId} value={providerId}>
+                {providers.find((provider) => provider.id === providerId)?.displayName ?? providerId}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Input
+            aria-label={`Candidate ${index + 1} provider`}
+            className="min-w-0 flex-[1_1_7rem]"
+            value={candidate.provider}
+            onChange={(event) => onChange({ provider: event.target.value })}
+            placeholder="provider"
+            required
+          />
+        )}
+        {pickModel ? (
+          <select
+            aria-label={`Candidate ${index + 1} model`}
+            className={cn(FIELD_CLASS, "min-w-0 flex-[2_1_9rem]")}
+            value={candidate.model}
+            onChange={(event) => {
+              if (event.target.value === CUSTOM_MODEL) {
+                setCustom(true);
+                onChange({ model: "" });
+                return;
+              }
+              onChange({ model: event.target.value });
+            }}
+            required
+          >
+            <option value="">model</option>
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+            <option value={CUSTOM_MODEL}>Custom…</option>
+          </select>
+        ) : (
+          <Input
+            aria-label={`Candidate ${index + 1} model`}
+            className="min-w-0 flex-[2_1_9rem]"
+            value={candidate.model}
+            onChange={(event) => onChange({ model: event.target.value })}
+            placeholder="model, may contain {level}"
+            required
+          />
+        )}
+        {models.length > 0 && custom ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={`Candidate ${index + 1} model from list`}
+            onClick={() => {
+              setCustom(false);
+              onChange({ model: "" });
+            }}
+          >
+            <Icon name="ChevronDown" aria-hidden />
+          </Button>
+        ) : null}
         <select
           aria-label={`Candidate ${index + 1} reasoning level`}
           className={cn(FIELD_CLASS, "min-w-0 flex-[1_1_6rem]")}

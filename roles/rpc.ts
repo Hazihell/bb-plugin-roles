@@ -6,7 +6,7 @@
 // stay consistent.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { findMissingModels, formatUnknownModelMessage } from "./models";
+import { findMissingModels, formatUnknownModelMessage, listProviderModels } from "./models";
 import { candidateSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
 import type { RoleStore } from "./store";
 
@@ -42,6 +42,10 @@ export const rpcContract = defineRpcContract({
   checkModels: {
     input: z.object({ candidates: z.array(candidateSchema) }).strict(),
     output: z.array(modelCheckResultSchema),
+  },
+  listProviderModels: {
+    input: z.null(),
+    output: z.array(z.object({ provider: z.string(), models: z.array(z.string()) })),
   },
 });
 
@@ -105,6 +109,9 @@ export function registerRoleRpc(bb: BbPluginApi, deps: RoleRpcDeps): void {
     },
     checkModels({ candidates }) {
       return findMissingModels(bb, candidates);
+    },
+    listProviderModels() {
+      return listProviderModels(bb);
     },
   });
 }

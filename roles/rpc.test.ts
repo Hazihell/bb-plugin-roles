@@ -191,3 +191,31 @@ describe("checkModels", () => {
     ]);
   });
 });
+
+describe("listProviderModels", () => {
+  it("reports each provider's live models, and an empty list for one that can't be read", async () => {
+    const { harness } = setup({
+      system: {
+        // biome-ignore lint: test double
+        executionOptions: async (args?: { providerId?: string }) => {
+          if (args?.providerId === "p2") throw new Error("provider unavailable");
+          return {
+            modelLoadError: null,
+            permissionCeiling: "full",
+            providers: [{ id: "p1" }, { id: "p2" }],
+            models: [{ id: "m1", model: "m1" }],
+            selectedOnlyModels: [{ id: "m2", model: "m2" }],
+            // biome-ignore lint: test double
+          } as any;
+        },
+      },
+    });
+
+    const result = await callRpc(harness, "listProviderModels", null);
+
+    expect(result).toEqual([
+      { provider: "p1", models: ["m1", "m2"] },
+      { provider: "p2", models: [] },
+    ]);
+  });
+});

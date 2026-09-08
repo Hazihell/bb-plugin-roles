@@ -5,6 +5,7 @@
 // it mutates its own role list on save/delete so a component under test sees
 // the same read-your-write behavior the real backend gives it, and records
 // every saveRole call so tests can assert on exactly what was sent.
+import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
 import { loadPluginApp, renderSlot, type PluginRpcTestHandlers } from "@get-bb/plugin-sdk/testing/app";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,7 +32,7 @@ function makeRole(overrides: Partial<Role> = {}): Role {
  * That's the only signal the settings page's live check (checkModels) needs
  * from a fake — the real check's own logic is covered in roles/rpc.test.ts.
  */
-function createRolesRpcStub(initialRoles: Role[]) {
+function createRolesRpcStub(initialRoles: Role[], providerModels: { provider: string; models: string[] }[] = []) {
   let roles = initialRoles;
   const saveCalls: { role: SaveRoleInput; mode: "create" | "update" }[] = [];
   const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
@@ -63,6 +64,7 @@ function createRolesRpcStub(initialRoles: Role[]) {
         resolvedModel: candidate.model,
         known: candidate.model !== "missing",
       })),
+    listProviderModels: () => providerModels,
   };
   return {
     handlers,
@@ -75,12 +77,32 @@ function createRolesRpcStub(initialRoles: Role[]) {
   };
 }
 
-async function renderRolesSection(initialRoles: Role[] = []) {
+/**
+ * Only `id` and `displayName` reach the candidate pickers; the rest of the
+ * host's ProviderInfo is inert here, so a fixture doesn't have to build one.
+ */
+function makeProviders(entries: { id: string; displayName: string }[]): PluginProvidersState["providers"] {
+  return entries as unknown as PluginProvidersState["providers"];
+}
+
+async function renderRolesSection(
+  initialRoles: Role[] = [],
+  roster: {
+    providerModels?: { provider: string; models: string[] }[];
+    providers?: { id: string; displayName: string }[];
+  } = {},
+) {
   const app = await loadPluginApp(() => import("./app"));
   const registration = app.settingsSections[0];
   if (registration === undefined) throw new Error("settingsSection not registered");
-  const stub = createRolesRpcStub(initialRoles);
-  const slot = renderSlot(registration, {}, { rpc: stub.handlers });
+  const stub = createRolesRpcStub(initialRoles, roster.providerModels ?? []);
+  const slot = renderSlot(
+    registration,
+    {},
+    roster.providers === undefined
+      ? { rpc: stub.handlers }
+      : { rpc: stub.handlers, providers: { status: "ready", providers: makeProviders(roster.providers) } },
+  );
   return { slot, stub };
 }
 
@@ -368,6 +390,55 @@ describe("roles settings section", () => {
 
     expect(slot.queryByLabelText("Candidate 1 has no matching live model")).toBeNull();
     expect(checkCalls).toBe(1);
+  });
+
+  it("saves a model picked from the live roster", async () => {
+    const { slot, stub } = await renderRolesSection([], {
+      providers: [{ id: "p1", displayName: "Provider One" }],
+      providerModels: [{ provider: "p1", models: ["m1", "m2"] }],
+    });
+    await slot.findByText("No roles yet.");
+
+    fireEvent.click(slot.getByRole("button", { name: /add role/i }));
+    fireEvent.change(await slot.findByLabelText("Id"), { target: { value: "builder" } });
+    fireEvent.change(slot.getByLabelText("Description"), { target: { value: "Builds things." } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 provider"), { target: { value: "p1" } });
+    // The model field is a picker once the roster arrives, so the only
+    // values it can take are ones the provider actually reports.
+    const modelField = await waitFor(() => {
+      const field = slot.getByLabelText("Candidate 1 model");
+      if (field.tagName !== "SELECT") throw new Error("model field is still free text");
+      return field;
+    });
+    fireEvent.change(modelField, { target: { value: "m2" } });
+
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(stub.saveCalls).toHaveLength(1));
+    expect(stub.saveCalls[0]?.role.candidates[0]).toMatchObject({ provider: "p1", model: "m2" });
+  });
+
+  it("lets the custom escape save a templated model the roster can't list", async () => {
+    const { slot, stub } = await renderRolesSection([], {
+      providers: [{ id: "p1", displayName: "Provider One" }],
+      providerModels: [{ provider: "p1", models: ["m1", "m2"] }],
+    });
+    await slot.findByText("No roles yet.");
+
+    fireEvent.click(slot.getByRole("button", { name: /add role/i }));
+    fireEvent.change(await slot.findByLabelText("Id"), { target: { value: "builder" } });
+    fireEvent.change(slot.getByLabelText("Description"), { target: { value: "Builds things." } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 provider"), { target: { value: "p1" } });
+    const modelField = await waitFor(() => {
+      const field = slot.getByLabelText("Candidate 1 model");
+      if (field.tagName !== "SELECT") throw new Error("model field is still free text");
+      return field;
+    });
+    fireEvent.change(modelField, { target: { value: "__custom__" } });
+
+    fireEvent.change(slot.getByLabelText("Candidate 1 model"), { target: { value: "m-{level}" } });
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(stub.saveCalls).toHaveLength(1));
+    expect(stub.saveCalls[0]?.role.candidates[0]).toMatchObject({ provider: "p1", model: "m-{level}" });
   });
 
   it("shows a warning for an unknown model and still proceeds to save", async () => {
