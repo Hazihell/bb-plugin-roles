@@ -10,7 +10,11 @@ import { execFile } from "node:child_process";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { createBlockRegistry } from "./roles/blocks";
+import { registerInstructions } from "./roles/instructions";
+import { registerMentions } from "./roles/mention";
 import { createQuotaReader } from "./roles/quota";
+import { createSpawner } from "./roles/spawn";
+import { createSpawnedRegistry } from "./roles/spawned";
 import { createRoleStore } from "./roles/store";
 
 function exec(command: string, args: string[]): Promise<{ stdout: string }> {
@@ -35,7 +39,7 @@ export default async function plugin(bb: BbPluginApi) {
       default: 5,
     },
   });
-  void settings; // read again inside handlers/CLI for freshness (Builder B/C)
+  // (read again inside handlers/CLI for freshness — settings.get() below)
 
   const store = createRoleStore(bb);
   store.seedOnce();
@@ -46,11 +50,18 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   const blocks = createBlockRegistry({ kv: bb.storage.kv });
-  void quota;
-  void blocks;
 
   // Builder B: spawn/respawn, instructions, mention
+  const spawned = createSpawnedRegistry(bb);
+  await spawned.load();
+  const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
+  registerInstructions({ bb, store, spawned });
+  registerMentions({ bb, store });
+
   // Builder C: CLI
+  const roles = { store, quota, blocks, spawner, settings, spawned };
+  void roles;
+  // registerCli(bb, roles);
 
   bb.onDispose(() => {
     bb.log.info("disposed");
