@@ -53,9 +53,12 @@ export async function findMissingModels(
   return results;
 }
 
+/** The bare message for one unknown candidate, shared by the CLI and the RPC. */
+export function formatUnknownModelMessage(result: ModelCheckResult): string {
+  return `${result.provider} has no model "${result.resolvedModel}" in its live list`;
+}
+
 /** Formats `findMissingModels`' output as CLI warning lines, one per unknown candidate. */
 export function formatMissingModelWarnings(results: readonly ModelCheckResult[]): string[] {
-  return results
-    .filter((result) => !result.known)
-    .map((result) => `warning: ${result.provider} has no model "${result.resolvedModel}" in its live list`);
+  return results.filter((result) => !result.known).map((result) => `warning: ${formatUnknownModelMessage(result)}`);
 }

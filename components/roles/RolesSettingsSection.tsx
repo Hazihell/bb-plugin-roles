@@ -2,16 +2,19 @@
 // component (registered in app.tsx). Lists the role cast, and hosts the
 // create/edit form and the delete confirmation as controlled dialogs.
 //
-// Data flow: `listRoles` on mount and on every "roles-changed" realtime
-// signal (fired by the server for a write from either this page or the
-// CLI — roles/rpc.ts, server.ts). After each list load, one batched
+// Data flow: `listRoles` on mount, on every "roles-changed" realtime signal
+// (fired by the server for a write from either this page or the CLI —
+// roles/rpc.ts, server.ts), and again on each reconnect (the signal itself
+// is ephemeral and isn't replayed, so a write missed while disconnected
+// needs this reconciliation pass). After each list load, one batched
 // `checkModels` call marks candidates whose live model is unknown; the form
 // re-checks its own in-progress candidates separately (RoleFormDialog).
-import { experimental_useProviders, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
-import { useCallback, useEffect, useState } from "react";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader } from "../ui/card";
-import { Icon } from "../ui/icon";
+import { useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Icon } from "@/components/ui/icon";
 import { DeleteRoleDialog } from "./DeleteRoleDialog";
 import { RoleFormDialog, type RoleFormTarget } from "./RoleFormDialog";
 import { rpcContract } from "../../roles/rpc";
@@ -19,17 +22,21 @@ import type { Role } from "../../roles/schema";
 
 const EMPTY_UNKNOWN = new Set<number>();
 
-export function RolesSettingsSection() {
+export function RolesSettingsSection({ providers }: { providers: PluginProvidersState["providers"] }) {
   const rpc = useRpc<typeof rpcContract>();
-  const { providers } = experimental_useProviders();
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unknownByRole, setUnknownByRole] = useState<Map<string, Set<number>>>(new Map());
   const [formTarget, setFormTarget] = useState<RoleFormTarget | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
+  // Bumped on every list load; a `checkModels` response only applies if
+  // it's still the latest one requested, so a stale reply that resolves
+  // after a newer list load can't overwrite its markers.
+  const checkGenerationRef = useRef(0);
 
   const checkAllModels = useCallback(
     async (list: readonly Role[]) => {
+      const generation = ++checkGenerationRef.current;
       const flat = list.flatMap((role) =>
         role.candidates.map((candidate, index) => ({ roleId: role.id, index, candidate })),
       );
@@ -39,6 +46,7 @@ export function RolesSettingsSection() {
       }
       try {
         const results = await rpc.call("checkModels", { candidates: flat.map((entry) => entry.candidate) });
+        if (checkGenerationRef.current !== generation) return;
         const next = new Map<string, Set<number>>();
         results.forEach((result, position) => {
           if (result.known) return;
@@ -51,7 +59,7 @@ export function RolesSettingsSection() {
         setUnknownByRole(next);
       } catch {
         // Best-effort live hint; a save-time warning is still authoritative.
-        setUnknownByRole(new Map());
+        if (checkGenerationRef.current === generation) setUnknownByRole(new Map());
       }
     },
     [rpc],
@@ -75,6 +83,20 @@ export function RolesSettingsSection() {
   useRealtime("roles-changed", () => {
     void refetch();
   });
+
+  // Plugin signals aren't replayed, so a reconnect has to reconcile durable
+  // server state itself — but only past the first connection, which the
+  // mount effect above already covers.
+  const connectionState = useRealtimeConnectionState();
+  const hasConnectedOnceRef = useRef(false);
+  useEffect(() => {
+    if (connectionState !== "connected") return;
+    if (!hasConnectedOnceRef.current) {
+      hasConnectedOnceRef.current = true;
+      return;
+    }
+    void refetch();
+  }, [connectionState, refetch]);
 
   return (
     <div className="space-y-4">

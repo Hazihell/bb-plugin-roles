@@ -114,7 +114,36 @@ describe("saveRole", () => {
       mode: "create",
     });
 
-    expect(harness.realtimeSignals).toContainEqual({ channel: "roles-changed", payload: {} });
+    expect(harness.inspection.realtimeSignals).toContainEqual({ channel: "roles-changed", payload: {} });
+  });
+
+  it("clears a role's instruction when updated with a blank one", async () => {
+    const { harness, store } = setup();
+
+    await callRpc(harness, "saveRole", {
+      role: {
+        id: "builder",
+        description: "Builds.",
+        permissionMode: "full",
+        instruction: "Be terse.",
+        candidates: [builderCandidate],
+      },
+      mode: "create",
+    });
+    expect(store.get("builder")?.instruction).toBe("Be terse.");
+
+    await callRpc(harness, "saveRole", {
+      role: {
+        id: "builder",
+        description: "Builds.",
+        permissionMode: "full",
+        instruction: null,
+        candidates: [builderCandidate],
+      },
+      mode: "update",
+    });
+
+    expect(store.get("builder")?.instruction).toBeUndefined();
   });
 });
 

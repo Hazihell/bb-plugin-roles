@@ -2,8 +2,8 @@
 // non-null is "open"; RolesSettingsSection owns the state.
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import { useState } from "react";
-import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { rpcContract } from "../../roles/rpc";
 import type { Role } from "../../roles/schema";
 

@@ -6,9 +6,9 @@
 // the same read-your-write behavior the real backend gives it, and records
 // every saveRole call so tests can assert on exactly what was sent.
 import { loadPluginApp, renderSlot, type PluginRpcTestHandlers } from "@get-bb/plugin-sdk/testing/app";
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { rpcContract } from "./roles/rpc";
+import type { rpcContract, SaveRoleInput } from "./roles/rpc";
 import type { Role } from "./roles/schema";
 
 // This suite isn't run with vitest's `globals` option, so Testing Library's
@@ -33,13 +33,22 @@ function makeRole(overrides: Partial<Role> = {}): Role {
  */
 function createRolesRpcStub(initialRoles: Role[]) {
   let roles = initialRoles;
-  const saveCalls: { role: Role; mode: "create" | "update" }[] = [];
+  const saveCalls: { role: SaveRoleInput; mode: "create" | "update" }[] = [];
   const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
     listRoles: () => roles,
     saveRole: ({ role, mode }) => {
       saveCalls.push({ role, mode });
-      roles = mode === "create" ? [...roles, role] : roles.map((existing) => (existing.id === role.id ? role : existing));
-      return { role, warnings: [] };
+      // Mirrors roles/rpc.ts: `null` clears the instruction rather than
+      // leaving a stale one in place. An explicit `undefined` key isn't a
+      // JSON value, so a cleared instruction has to be dropped entirely
+      // rather than merely nulled out.
+      const { instruction, ...withoutInstruction } = role;
+      const normalized: Role = instruction === null || instruction === undefined ? withoutInstruction : { ...withoutInstruction, instruction };
+      roles =
+        mode === "create"
+          ? [...roles, normalized]
+          : roles.map((existing) => (existing.id === normalized.id ? normalized : existing));
+      return { role: normalized, warnings: [] };
     },
     deleteRole: ({ id }) => {
       const existed = roles.some((role) => role.id === id);
@@ -55,7 +64,15 @@ function createRolesRpcStub(initialRoles: Role[]) {
         known: candidate.model !== "missing",
       })),
   };
-  return { handlers, saveCalls, getRoles: () => roles };
+  return {
+    handlers,
+    saveCalls,
+    getRoles: () => roles,
+    /** Simulates a durable write the ephemeral realtime signal wouldn't replay. */
+    setRoles: (next: Role[]) => {
+      roles = next;
+    },
+  };
 }
 
 async function renderRolesSection(initialRoles: Role[] = []) {
@@ -138,6 +155,101 @@ describe("roles settings section", () => {
         ],
       },
     });
+  });
+
+  it("clears an existing instruction by sending null, not by omitting the field", async () => {
+    const role = makeRole({ id: "builder", instruction: "Be terse." });
+    const { slot, stub } = await renderRolesSection([role]);
+    await slot.findByText("builder");
+
+    fireEvent.click(slot.getByRole("button", { name: "Edit builder" }));
+    const instructionField = await slot.findByLabelText("Instruction");
+    expect((instructionField as HTMLTextAreaElement).value).toBe("Be terse.");
+    fireEvent.change(instructionField, { target: { value: "  " } });
+
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(stub.saveCalls).toHaveLength(1));
+    expect(stub.saveCalls[0]?.role.instruction).toBeNull();
+  });
+
+  it("refetches the list on a reconnect, but not on the first connection", async () => {
+    const { slot, stub } = await renderRolesSection([makeRole({ id: "builder", description: "Builds things." })]);
+    await slot.findByText("builder");
+
+    // The default fixture starts "connected" — this is the first connection
+    // the mount effect already covers, so it must not trigger a second fetch.
+    stub.setRoles([makeRole({ id: "builder", description: "Builds better things." })]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(slot.queryByText("Builds better things.")).toBeNull();
+
+    // A reconnect (a transition INTO "connected", not the first one) has to
+    // reconcile state the ephemeral realtime signal wouldn't have replayed.
+    await slot.behavior.setRealtimeConnectionState("reconnecting");
+    await slot.behavior.setRealtimeConnectionState("connected");
+
+    await slot.findByText("Builds better things.");
+  });
+
+  it("ignores a stale checkModels response that resolves after a newer one", async () => {
+    let resolveFirst: (() => void) | undefined;
+    let resolveSecond: (() => void) | undefined;
+    let calls = 0;
+    const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
+      listRoles: () => [],
+      saveRole: () => {
+        throw new Error("not used in this test");
+      },
+      deleteRole: () => ({ deleted: false }),
+      checkModels: ({ candidates }) => {
+        calls += 1;
+        const isFirstCall = calls === 1;
+        return new Promise<void>((resolve) => {
+          if (isFirstCall) resolveFirst = resolve;
+          else resolveSecond = resolve;
+        }).then(() =>
+          // The stale first check reports "unknown"; the fresh second one
+          // reports "known" — only the second result may reach the UI.
+          candidates.map((candidate, index) => ({
+            index,
+            provider: candidate.provider,
+            model: candidate.model,
+            resolvedModel: candidate.model,
+            known: !isFirstCall,
+          })),
+        );
+      },
+    };
+    const app = await loadPluginApp(() => import("./app"));
+    const registration = app.settingsSections[0];
+    if (registration === undefined) throw new Error("settingsSection not registered");
+    const slot = renderSlot(registration, {}, { rpc: handlers });
+    await slot.findByText("No roles yet.");
+
+    fireEvent.click(slot.getByRole("button", { name: /add role/i }));
+    fireEvent.change(await slot.findByLabelText("Id"), { target: { value: "builder" } });
+    fireEvent.change(slot.getByLabelText("Description"), { target: { value: "Builds things." } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 provider"), { target: { value: "p1" } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 model"), { target: { value: "m1" } });
+    // Wait past the 400ms debounce so the first (soon-to-be-stale) check fires.
+    await waitFor(() => expect(resolveFirst).toBeDefined(), { timeout: 1000 });
+
+    fireEvent.change(slot.getByLabelText("Candidate 1 model"), { target: { value: "m2" } });
+    // Wait past the debounce again so the second, current check fires.
+    await waitFor(() => expect(resolveSecond).toBeDefined(), { timeout: 1000 });
+
+    // Resolve out of order: the newer check settles first...
+    await act(async () => {
+      resolveSecond?.();
+      await Promise.resolve();
+    });
+    // ...then the stale one, which must not override the fresh result.
+    await act(async () => {
+      resolveFirst?.();
+      await Promise.resolve();
+    });
+
+    expect(slot.queryByLabelText("Candidate 1 has no matching live model")).toBeNull();
   });
 
   it("shows a warning for an unknown model and still proceeds to save", async () => {

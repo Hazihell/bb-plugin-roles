@@ -39,7 +39,7 @@ export default async function plugin(bb: BbPluginApi) {
   // The settings page (app.tsx) refetches on this signal; it fires for a
   // write from either the CLI or the RPC below, since both go through this
   // one store.
-  store.onChange(() => bb.realtime.publish("roles-changed", {}));
+  const unsubscribeRolesChanged = store.onChange(() => bb.realtime.publish("roles-changed", {}));
   registerRoleRpc(bb, { store });
 
   const quota = createQuotaReader({
@@ -61,6 +61,7 @@ export default async function plugin(bb: BbPluginApi) {
   registerCli(bb, roles);
 
   bb.onDispose(() => {
+    unsubscribeRolesChanged();
     bb.log.info("disposed");
   });
 }

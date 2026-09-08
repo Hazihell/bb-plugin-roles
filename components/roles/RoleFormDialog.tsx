@@ -7,14 +7,14 @@
 // row before save — `saveRole` itself never blocks on this check.
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
-import { useEffect, useState, type FormEvent } from "react";
-import { cn } from "../../lib/utils";
-import { reasoningLevelSchema, roleSchema, type Candidate, type PermissionMode, type Role } from "../../roles/schema";
-import { rpcContract } from "../../roles/rpc";
-import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Icon } from "../ui/icon";
-import { Input } from "../ui/input";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { cn } from "@/lib/utils";
+import { reasoningLevelSchema, type Candidate, type PermissionMode, type Role } from "../../roles/schema";
+import { rpcContract, saveRoleInputSchema } from "../../roles/rpc";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
 
 export type RoleFormTarget = { mode: "create" } | { mode: "edit"; role: Role };
 
@@ -72,6 +72,10 @@ function RoleForm({
   const [unknownIndices, setUnknownIndices] = useState<ReadonlySet<number>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Bumped on every check this effect starts; a response only applies if
+  // it's still the latest one requested, so a stale reply that resolves
+  // after a newer request can't clobber its result.
+  const checkGenerationRef = useRef(0);
 
   // Debounced live model check: only complete rows are worth asking about.
   useEffect(() => {
@@ -79,13 +83,16 @@ function RoleForm({
       .map((candidate, index) => ({ candidate, index }))
       .filter(({ candidate }) => candidate.provider.trim() !== "" && candidate.model.trim() !== "");
     if (complete.length === 0) {
+      checkGenerationRef.current += 1;
       setUnknownIndices(new Set());
       return;
     }
     const timer = setTimeout(() => {
+      const generation = ++checkGenerationRef.current;
       void rpc
         .call("checkModels", { candidates: complete.map((entry) => entry.candidate) })
         .then((results) => {
+          if (checkGenerationRef.current !== generation) return;
           const unknown = new Set<number>();
           results.forEach((result, position) => {
             if (!result.known) {
@@ -128,19 +135,19 @@ function RoleForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    // Omit `instruction` entirely rather than setting it `undefined`: the
-    // rpc wire format rejects `undefined` as a value, but an absent
-    // optional key round-trips cleanly (and matches how a role with no
-    // instruction is stored).
-    const roleInput: Record<string, unknown> = {
+    // `null` is the wire's explicit "clear the instruction" signal — plain
+    // `undefined` doesn't survive JSON.stringify, so a blank field has to
+    // send `null` rather than simply omitting the key (see roles/rpc.ts).
+    const trimmedInstruction = instruction.trim();
+    const roleInput = {
       id: id.trim(),
       description: description.trim(),
       permissionMode,
       candidates,
+      instruction: trimmedInstruction === "" ? null : trimmedInstruction,
     };
-    if (instruction.trim() !== "") roleInput.instruction = instruction.trim();
 
-    const parsed = roleSchema.safeParse(roleInput);
+    const parsed = saveRoleInputSchema.safeParse(roleInput);
     if (!parsed.success) {
       setSaveError(parsed.error.issues.map((issue) => issue.message).join("; "));
       return;
