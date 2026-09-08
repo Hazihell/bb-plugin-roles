@@ -23,6 +23,7 @@
   "include": [
     "server.ts",
     "app.tsx",
+    "roles",
     "components",
     "lib",
     "hooks"
