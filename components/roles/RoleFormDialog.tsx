@@ -298,7 +298,7 @@ function CandidateRow({
 }) {
   const datalistId = `role-form-providers-${index}`;
   return (
-    <div className="flex items-start gap-1.5">
+    <div className="flex flex-wrap items-start gap-1.5">
       {unknown ? (
         <Icon
           name="AlertTriangle"
@@ -308,72 +308,76 @@ function CandidateRow({
       ) : (
         <span className="mt-2 size-3.5 shrink-0" aria-hidden />
       )}
-      <Input
-        aria-label={`Candidate ${index + 1} provider`}
-        className="w-32"
-        list={datalistId}
-        value={candidate.provider}
-        onChange={(event) => onChange({ provider: event.target.value })}
-        placeholder="provider"
-        required
-      />
-      <datalist id={datalistId}>
-        {providers.map((provider) => (
-          <option key={provider.id} value={provider.id}>
-            {provider.displayName}
-          </option>
-        ))}
-      </datalist>
-      <Input
-        aria-label={`Candidate ${index + 1} model`}
-        className="flex-1"
-        value={candidate.model}
-        onChange={(event) => onChange({ model: event.target.value })}
-        placeholder="model, may contain {level}"
-        required
-      />
-      <select
-        aria-label={`Candidate ${index + 1} reasoning level`}
-        className={cn(FIELD_CLASS, "w-28")}
-        value={candidate.reasoningLevel}
-        onChange={(event) => onChange({ reasoningLevel: event.target.value as Candidate["reasoningLevel"] })}
-      >
-        {REASONING_LEVELS.map((level) => (
-          <option key={level} value={level}>
-            {level}
-          </option>
-        ))}
-      </select>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={`Move candidate ${index + 1} up`}
-        onClick={onMoveUp}
-        disabled={index === 0}
-      >
-        <Icon name="ArrowUp" aria-hidden />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={`Move candidate ${index + 1} down`}
-        onClick={onMoveDown}
-        disabled={index === total - 1}
-      >
-        <Icon name="ArrowDown" aria-hidden />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={`Remove candidate ${index + 1}`}
-        onClick={onRemove}
-        disabled={total <= 1}
-      >
-        <Icon name="Trash2" aria-hidden />
-      </Button>
+      <div className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-start gap-1.5">
+        <Input
+          aria-label={`Candidate ${index + 1} provider`}
+          className="min-w-0 flex-[1_1_7rem]"
+          list={datalistId}
+          value={candidate.provider}
+          onChange={(event) => onChange({ provider: event.target.value })}
+          placeholder="provider"
+          required
+        />
+        <datalist id={datalistId}>
+          {providers.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.displayName}
+            </option>
+          ))}
+        </datalist>
+        <Input
+          aria-label={`Candidate ${index + 1} model`}
+          className="min-w-0 flex-[2_1_9rem]"
+          value={candidate.model}
+          onChange={(event) => onChange({ model: event.target.value })}
+          placeholder="model, may contain {level}"
+          required
+        />
+        <select
+          aria-label={`Candidate ${index + 1} reasoning level`}
+          className={cn(FIELD_CLASS, "min-w-0 flex-[1_1_6rem]")}
+          value={candidate.reasoningLevel}
+          onChange={(event) => onChange({ reasoningLevel: event.target.value as Candidate["reasoningLevel"] })}
+        >
+          {REASONING_LEVELS.map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Move candidate ${index + 1} up`}
+          onClick={onMoveUp}
+          disabled={index === 0}
+        >
+          <Icon name="ArrowUp" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Move candidate ${index + 1} down`}
+          onClick={onMoveDown}
+          disabled={index === total - 1}
+        >
+          <Icon name="ArrowDown" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Remove candidate ${index + 1}`}
+          onClick={onRemove}
+          disabled={total <= 1}
+        >
+          <Icon name="Trash2" aria-hidden />
+        </Button>
+      </div>
     </div>
   );
 }
