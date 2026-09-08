@@ -40,6 +40,15 @@ export const roleSchema = z.object({
 });
 export type Role = z.infer<typeof roleSchema>;
 
+// `roleSchema.instruction` is `string | undefined`, which JSON.stringify
+// drops from a wire payload — so a form clearing the field can't send
+// `instruction: undefined` and have it arrive. This input variant accepts
+// `null` as the explicit "clear" signal, which round-trips over JSON. It
+// lives here (not roles/rpc.ts) so the frontend form can validate against it
+// without importing a backend module — see components/roles/RoleFormDialog.tsx.
+export const saveRoleInputSchema = roleSchema.extend({ instruction: z.string().nullable().optional() });
+export type SaveRoleInput = z.infer<typeof saveRoleInputSchema>;
+
 /** Replaces the literal "{level}" in a candidate's model with its level. */
 export function resolveModel(model: string, level: ReasoningLevel): string {
   return model.replaceAll("{level}", level);

@@ -7,15 +7,8 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { findMissingModels, formatUnknownModelMessage } from "./models";
-import { candidateSchema, roleSchema, type Role } from "./schema";
+import { candidateSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
 import type { RoleStore } from "./store";
-
-// `roleSchema.instruction` is `string | undefined`, which JSON.stringify
-// drops from a wire payload — so a form clearing the field can't send
-// `instruction: undefined` and have it arrive. This input variant accepts
-// `null` as the explicit "clear" signal, which round-trips over JSON.
-export const saveRoleInputSchema = roleSchema.extend({ instruction: z.string().nullable().optional() });
-export type SaveRoleInput = z.infer<typeof saveRoleInputSchema>;
 
 const modelCheckResultSchema = z.object({
   index: z.number().int().nonnegative(),

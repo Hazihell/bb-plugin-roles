@@ -191,6 +191,68 @@ describe("roles settings section", () => {
     await slot.findByText("Builds better things.");
   });
 
+  it("ignores a stale checkModels response for the list view that resolves after a newer one", async () => {
+    let resolveFirst: (() => void) | undefined;
+    let resolveSecond: (() => void) | undefined;
+    let checkCalls = 0;
+    const role = makeRole({
+      id: "builder",
+      candidates: [{ provider: "p1", model: "m1", reasoningLevel: "medium" }],
+    });
+    const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
+      listRoles: () => [role],
+      saveRole: () => {
+        throw new Error("not used in this test");
+      },
+      deleteRole: () => ({ deleted: false }),
+      checkModels: ({ candidates }) => {
+        checkCalls += 1;
+        const isFirstCall = checkCalls === 1;
+        return new Promise<void>((resolve) => {
+          if (isFirstCall) resolveFirst = resolve;
+          else resolveSecond = resolve;
+        }).then(() =>
+          // The stale first check reports "unknown"; the fresh second one
+          // reports "known" — only the second result may reach the UI.
+          candidates.map((candidate, index) => ({
+            index,
+            provider: candidate.provider,
+            model: candidate.model,
+            resolvedModel: candidate.model,
+            known: !isFirstCall,
+          })),
+        );
+      },
+    };
+    const app = await loadPluginApp(() => import("./app"));
+    const registration = app.settingsSections[0];
+    if (registration === undefined) throw new Error("settingsSection not registered");
+    const slot = renderSlot(registration, {}, { rpc: handlers });
+    await slot.findByText("builder");
+    // The mount effect starts the first (soon-to-be-stale) check.
+    await waitFor(() => expect(resolveFirst).toBeDefined());
+
+    // The realtime "roles-changed" signal fires a second list load — and a
+    // second check — before the first one has resolved.
+    await act(async () => {
+      await slot.behavior.emitRealtime("roles-changed", {});
+    });
+    await waitFor(() => expect(resolveSecond).toBeDefined());
+
+    // Resolve out of order: the newer check settles first...
+    await act(async () => {
+      resolveSecond?.();
+      await Promise.resolve();
+    });
+    // ...then the stale one, which must not override the fresh result.
+    await act(async () => {
+      resolveFirst?.();
+      await Promise.resolve();
+    });
+
+    expect(slot.queryByLabelText("Unknown model for candidate 1")).toBeNull();
+  });
+
   it("ignores a stale checkModels response that resolves after a newer one", async () => {
     let resolveFirst: (() => void) | undefined;
     let resolveSecond: (() => void) | undefined;
@@ -250,6 +312,62 @@ describe("roles settings section", () => {
     });
 
     expect(slot.queryByLabelText("Candidate 1 has no matching live model")).toBeNull();
+  });
+
+  it("discards a checkModels response for candidates that changed while it was in flight", async () => {
+    let resolveFirst: (() => void) | undefined;
+    let checkCalls = 0;
+    const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
+      listRoles: () => [],
+      saveRole: () => {
+        throw new Error("not used in this test");
+      },
+      deleteRole: () => ({ deleted: false }),
+      checkModels: ({ candidates }) => {
+        checkCalls += 1;
+        return new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        }).then(() =>
+          // Reports the candidate unknown — if this stale response is ever
+          // applied it shows a marker a fresh check for "m2" would not.
+          candidates.map((candidate, index) => ({
+            index,
+            provider: candidate.provider,
+            model: candidate.model,
+            resolvedModel: candidate.model,
+            known: false,
+          })),
+        );
+      },
+    };
+    const app = await loadPluginApp(() => import("./app"));
+    const registration = app.settingsSections[0];
+    if (registration === undefined) throw new Error("settingsSection not registered");
+    const slot = renderSlot(registration, {}, { rpc: handlers });
+    await slot.findByText("No roles yet.");
+
+    fireEvent.click(slot.getByRole("button", { name: /add role/i }));
+    fireEvent.change(await slot.findByLabelText("Id"), { target: { value: "builder" } });
+    fireEvent.change(slot.getByLabelText("Description"), { target: { value: "Builds things." } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 provider"), { target: { value: "p1" } });
+    fireEvent.change(slot.getByLabelText("Candidate 1 model"), { target: { value: "m1" } });
+    // Wait past the 400ms debounce so the request for "m1" fires and is in flight.
+    await waitFor(() => expect(resolveFirst).toBeDefined(), { timeout: 1000 });
+
+    // Change the candidate while that request is still in flight. This must
+    // invalidate it immediately, not only once a second debounced request
+    // for "m2" fires.
+    fireEvent.change(slot.getByLabelText("Candidate 1 model"), { target: { value: "m2" } });
+
+    // Resolve the stale "m1" request right away, well inside the new
+    // debounce window — before any second request has even been sent.
+    await act(async () => {
+      resolveFirst?.();
+      await Promise.resolve();
+    });
+
+    expect(slot.queryByLabelText("Candidate 1 has no matching live model")).toBeNull();
+    expect(checkCalls).toBe(1);
   });
 
   it("shows a warning for an unknown model and still proceeds to save", async () => {

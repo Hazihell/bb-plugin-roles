@@ -9,8 +9,8 @@ import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { cn } from "@/lib/utils";
-import { reasoningLevelSchema, type Candidate, type PermissionMode, type Role } from "../../roles/schema";
-import { rpcContract, saveRoleInputSchema } from "../../roles/rpc";
+import { reasoningLevelSchema, saveRoleInputSchema, type Candidate, type PermissionMode, type Role } from "../../roles/schema";
+import type { rpcContract } from "../../roles/rpc";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
@@ -78,12 +78,18 @@ function RoleForm({
   const checkGenerationRef = useRef(0);
 
   // Debounced live model check: only complete rows are worth asking about.
+  // The generation bumps synchronously the moment candidates change (not
+  // after the debounce), so a request already in flight when the rows
+  // change is invalidated right away instead of staying eligible to apply
+  // for the rest of the 400ms window. It bumps again on cleanup so a
+  // request whose response arrives after this effect run ends — including
+  // on unmount — is also discarded.
   useEffect(() => {
+    checkGenerationRef.current += 1;
     const complete = candidates
       .map((candidate, index) => ({ candidate, index }))
       .filter(({ candidate }) => candidate.provider.trim() !== "" && candidate.model.trim() !== "");
     if (complete.length === 0) {
-      checkGenerationRef.current += 1;
       setUnknownIndices(new Set());
       return;
     }
@@ -106,7 +112,10 @@ function RoleForm({
           // Best-effort live hint; save-time warnings remain authoritative.
         });
     }, 400);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      checkGenerationRef.current += 1;
+    };
   }, [candidates, rpc]);
 
   function updateCandidate(index: number, patch: Partial<Candidate>) {
