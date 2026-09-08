@@ -14,6 +14,7 @@ import { execFileText } from "./roles/exec";
 import { registerInstructions } from "./roles/instructions";
 import { registerMentions } from "./roles/mention";
 import { createQuotaReader } from "./roles/quota";
+import { registerRoleRpc } from "./roles/rpc";
 import { createSpawner } from "./roles/spawn";
 import { createSpawnedRegistry } from "./roles/spawned";
 import { createRoleStore } from "./roles/store";
@@ -35,6 +36,11 @@ export default async function plugin(bb: BbPluginApi) {
 
   const store = createRoleStore(bb);
   store.seedOnce();
+  // The settings page (app.tsx) refetches on this signal; it fires for a
+  // write from either the CLI or the RPC below, since both go through this
+  // one store.
+  store.onChange(() => bb.realtime.publish("roles-changed", {}));
+  registerRoleRpc(bb, { store });
 
   const quota = createQuotaReader({
     sdk: bb.sdk,

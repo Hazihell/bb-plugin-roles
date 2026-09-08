@@ -97,6 +97,18 @@ roles: [...]}`), on the invoking machine's filesystem — never the server's.
 role not in the document is deleted, not merely left alone; positions follow
 document order.
 
+## Settings page
+
+The plugin's Settings page (below the host's threshold field) lists the
+cast as cards — id, description, permission mode, and candidates in
+fallback order — and lets you add, edit, or delete a role without the CLI.
+The edit form checks each candidate's model against its provider's live
+list as you type, and marks one a plugin doesn't recognize; that check
+never blocks save, the same "warn, never block" contract `bb roles
+create`/`update` use. A role's candidate order — its fallback order — is
+changed with move up/down buttons on each row. The page and the CLI share
+one store: a write from either refreshes the other's view live.
+
 ## Install
 
 ```
