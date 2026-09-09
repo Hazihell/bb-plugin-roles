@@ -21,7 +21,7 @@ function setup() {
   registerMentions({ bb, store });
 
   const provider = harness.registrations.mentionProviders[0]!;
-  return { provider };
+  return { provider, store };
 }
 
 describe("registerMentions", () => {
@@ -63,6 +63,15 @@ describe("registerMentions", () => {
     const resolved = await provider.resolve("builder");
     expect(resolved.context).toContain("Role **builder**: Implementation work.");
     expect(resolved.context).toContain("bb roles spawn --role builder");
+  });
+
+  it("resolve renders the role's brief untruncated between description and spawn line", async () => {
+    const { provider, store } = setup();
+    const brief = "x".repeat(400);
+    store.update("builder", { brief });
+    const resolved = await provider.resolve("builder");
+    expect(resolved.context).toContain(`Brief: ${brief}`);
+    expect(resolved.context.indexOf("Brief:")).toBeLessThan(resolved.context.indexOf("Spawn:"));
   });
 
   it("resolve throws for an unknown role id, blocking the send", () => {

@@ -82,11 +82,10 @@ describe("registerInstructions", () => {
     expect(text).not.toContain("Follow the plan exactly.");
   });
 
-  it("uses the child-mechanics delegation rule with the review pointer", async () => {
+  it("uses the child-mechanics delegation rule", async () => {
     expect(DEFAULT_DELEGATION_RULE.startsWith("## Delegation\n")).toBe(true);
     expect(DEFAULT_DELEGATION_RULE).toContain("bb roles spawn --role <id>");
     expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or `bb thread tell`");
-    expect(DEFAULT_DELEGATION_RULE).toContain("`/review` runs the review loop");
     expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(700);
   });
 
