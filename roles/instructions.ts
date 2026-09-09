@@ -16,6 +16,7 @@ import type { SpawnedRegistry } from "./spawned";
 const MAX_LENGTH = 4096;
 const DESCRIPTION_MAX = 200;
 export const BRIEF_MAX = 200;
+const CHILD_LEAF_CONTRACT = "A child is a leaf: it edits only what its role allows, spawns nothing, and leaves the provider's own agent or subagent tool unused.";
 
 function truncate(text: string, max: number): string {
   if (max <= 0) return "";
@@ -42,9 +43,9 @@ function buildRoleSection(role: Role, parentThreadId: string | null): string | n
   const prefix = `\n\n## Role: ${role.id}\n`;
   const instruction = truncate(
     role.instruction,
-    Math.max(0, MAX_LENGTH - prefix.length - coordinator.length),
+    Math.max(0, MAX_LENGTH - prefix.length - CHILD_LEAF_CONTRACT.length - coordinator.length - 2),
   );
-  return `${prefix}${instruction}${coordinator}`;
+  return `${prefix}${instruction}\n\n${CHILD_LEAF_CONTRACT}${coordinator}`;
 }
 
 export async function registerInstructions(deps: {

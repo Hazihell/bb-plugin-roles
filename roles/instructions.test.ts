@@ -133,7 +133,7 @@ describe("registerInstructions", () => {
       projectId: "proj_1",
     });
 
-    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.\n\nYour coordinator is thread th_parent. A decision the brief does not settle goes there: `bb thread tell th_parent \"<the fork and your recommendation>\"`, then end the turn and continue when the answer arrives.");
+    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.\n\nA child is a leaf: it edits only what its role allows, spawns nothing, and leaves the provider's own agent or subagent tool unused.\n\nYour coordinator is thread th_parent. A decision the brief does not settle goes there: `bb thread tell th_parent \"<the fork and your recommendation>\"`, then end the turn and continue when the answer arrives.");
     expect(text).toContain("## Role: builder");
     expect(text).toContain("Follow the plan exactly.");
   });
@@ -199,7 +199,7 @@ describe("registerInstructions", () => {
       projectId: "proj_1",
     });
 
-    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.");
+    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.\n\nA child is a leaf: it edits only what its role allows, spawns nothing, and leaves the provider's own agent or subagent tool unused.");
     expect(text).not.toContain("Your coordinator is thread");
   });
 
