@@ -9,6 +9,7 @@ import { z } from "zod";
 import { findMissingModels, formatUnknownModelMessage, listProviderModels } from "./models";
 import { candidateSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
 import type { RoleStore } from "./store";
+import { DEFAULT_DELEGATION_RULE } from "./rule";
 
 const modelCheckResultSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -47,10 +48,17 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.array(z.object({ provider: z.string(), models: z.array(z.string()) })),
   },
+  resetDelegationRule: {
+    input: z.null(),
+    output: z.object({ delegationRule: z.string() }),
+  },
 });
 
 export interface RoleRpcDeps {
   store: RoleStore;
+  settings: {
+    experimental_set(values: { delegationRule?: string | null }): Promise<{ delegationRule: string }>;
+  };
 }
 
 /**
@@ -112,6 +120,10 @@ export function registerRoleRpc(bb: BbPluginApi, deps: RoleRpcDeps): void {
     },
     listProviderModels() {
       return listProviderModels(bb);
+    },
+    async resetDelegationRule() {
+      const values = await deps.settings.experimental_set({ delegationRule: DEFAULT_DELEGATION_RULE });
+      return { delegationRule: values.delegationRule };
     },
   });
 }

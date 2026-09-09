@@ -2,6 +2,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { describe, expect, it } from "vitest";
 import { registerRoleRpc, rpcContract } from "./rpc";
 import { createRoleStore } from "./store";
+import { DEFAULT_DELEGATION_RULE } from "./rule";
 
 const builderCandidate = { provider: "p1", model: "m1", reasoningLevel: "medium" as const };
 
@@ -11,7 +12,14 @@ function setup(sdk: any = {}) {
   const store = createRoleStore(bb);
   // Mirrors server.ts: every store write, from either surface, publishes.
   store.onChange(() => bb.realtime.publish("roles-changed", {}));
-  registerRoleRpc(bb, { store });
+  registerRoleRpc(bb, {
+    store,
+    settings: {
+      async experimental_set() {
+        return { delegationRule: DEFAULT_DELEGATION_RULE };
+      },
+    },
+  });
   return { bb, harness, store };
 }
 

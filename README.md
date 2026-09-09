@@ -18,7 +18,8 @@ First-class agent roles with quota-aware fallback:
 A role has an `id`, a trigger `description`, a `permissionMode` (default
 `full`), an optional `instruction`, and an ordered list of `candidates` —
 each a provider id, a model (which may contain `{level}`, resolved at spawn
-time), and a default reasoning level. The plugin seeds five roles once, ever,
+time), and a default reasoning level. The plugin seeds the committed cast in
+[`roles/cast.json`](roles/cast.json) once, ever,
 on first load — **scout**, **builder**, **designer**, **reviewer**,
 **advisor** — and never reseeds, even across a full delete.
 
@@ -81,13 +82,15 @@ the dead child in place.
 
 ## Instructions and mentions
 
-Every thread's instructions carry a Cast section, one line per role, plus a
-`bb roles spawn` pointer — it is mandatory and is rendered first, so it is
-never dropped; a thread this plugin spawned also carries that role's own
-`instruction`, which gets whatever's left of the 4096-character budget,
-truncated with a trailing "…" when it doesn't fit. Typing `@<role>` in the
-composer hands the agent the role's description and a filled-in `bb roles
-spawn` line.
+An unspawned thread receives the configured Delegation rule followed by a Cast
+section, one line per role, plus a `bb roles spawn` pointer. A thread this
+plugin spawned receives only its role section (`## Role: <id>` and its
+`instruction`); if that role has no instruction, it receives the Cast as a
+fallback. The parent-thread rule and Cast share the 4096-character budget,
+with truncation marked by "…". The Delegation rule is a multiline setting;
+the host renders it, and the settings page can reset it to its default.
+Typing `@<role>` in the composer hands the agent the role's description and a
+filled-in `bb roles spawn` line.
 
 ## Export / import
 

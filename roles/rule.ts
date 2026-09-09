@@ -1,0 +1,2 @@
+export const DEFAULT_DELEGATION_RULE =
+  "## Delegation\nThis thread decides; children do. Read reports and diffs here, never source files, and run no checks. Exploration, research, any change to files and every review go to a fresh child by role. Every child is a `bb roles spawn`; the provider's own agent or subagent tool stays unused. Read the `delegation` skill before any spawn or `bb thread tell`.";

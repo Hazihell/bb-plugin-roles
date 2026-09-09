@@ -1,16 +1,13 @@
-// roles/instructions.ts — the Cast every thread's instructions carry, plus
-// a spawned child's own role instruction.
+// roles/instructions.ts — the delegation rule and Cast for parent threads,
+// or the spawned child's own role instruction.
 //
 // `contributeInstructions` runs on the thread-start path and must be
 // synchronous, so this keeps an in-memory role list refreshed through
 // `store.onChange` rather than touching the database per resolution.
 //
-// Budget, under the host's 4096-character cap: the Cast is mandatory and is
-// rendered first, so it is never dropped — each role's description is
-// already truncated to DESCRIPTION_MAX, and in the pathological case where
-// the whole cast still doesn't fit, the cast itself is cut to MAX_LENGTH.
-// The role instruction section gets whatever budget is left, truncated with
-// a trailing "…" marker when it doesn't fit.
+// Budget, under the host's 4096-character cap: the delegation rule and Cast
+// are mandatory for parent threads and are rendered in that order. The role
+// instruction section is the only content for a spawned thread with one.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Role } from "./schema";
 import type { RoleStore } from "./store";
@@ -41,31 +38,32 @@ function buildRoleSection(role: Role): string | null {
   return `\n\n## Role: ${role.id}\n${role.instruction}`;
 }
 
-export function registerInstructions(deps: {
+export async function registerInstructions(deps: {
   bb: BbPluginApi;
   store: RoleStore;
   spawned: SpawnedRegistry;
-}): void {
-  const { bb, store, spawned } = deps;
+  settings: { get(): Promise<{ delegationRule: string }>; onChange(listener: (next: { delegationRule: string }) => void): void };
+}): Promise<void> {
+  const { bb, store, spawned, settings } = deps;
 
   let roles: Role[] = store.list();
+  let delegationRule = (await settings.get()).delegationRule;
+  settings.onChange((next) => {
+    delegationRule = next.delegationRule;
+  });
   store.onChange(() => {
     roles = store.list();
   });
 
   bb.agents.contributeInstructions(({ threadId }) => {
     const record = spawned.get(threadId);
-    if (roles.length === 0 && record === null) return null;
-
-    // The Cast is mandatory and goes first: it always renders, truncated to
-    // MAX_LENGTH only in the pathological case where it alone overflows.
-    const cast = truncate(buildCastSection(roles), MAX_LENGTH);
     const role = record === null ? null : (roles.find((r) => r.id === record.roleId) ?? null);
     const roleSection = role === null ? null : buildRoleSection(role);
-    if (roleSection === null) return cast;
+    if (record !== null) return roleSection === null ? truncate(buildCastSection(roles), MAX_LENGTH) : truncate(roleSection, MAX_LENGTH);
 
-    // The role instruction gets whatever's left of the 4096 total.
-    const roleBudget = Math.max(0, MAX_LENGTH - cast.length);
-    return cast + truncate(roleSection, roleBudget);
+    const rule = truncate(delegationRule, MAX_LENGTH);
+    const separator = "\n\n";
+    const cast = truncate(buildCastSection(roles), Math.max(0, MAX_LENGTH - rule.length - separator.length));
+    return rule + separator + cast;
   });
 }

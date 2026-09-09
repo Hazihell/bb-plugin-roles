@@ -18,18 +18,27 @@ import { registerRoleRpc } from "./roles/rpc";
 import { createSpawner } from "./roles/spawn";
 import { createSpawnedRegistry } from "./roles/spawned";
 import { createRoleStore } from "./roles/store";
+import { DEFAULT_DELEGATION_RULE } from "./roles/rule";
 
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
 
-  // One plugin setting: the quota-skip threshold, a percentage. Candidate
-  // selection (roles/select.ts) skips any candidate at or below this.
+  // Plugin settings: the quota-skip threshold and the delegation rule.
+  // Candidate selection (roles/select.ts) skips any candidate at or below the
+  // threshold; the rule is cached by roles/instructions.ts for synchronous
+  // contribution.
   const settings = bb.settings.define({
     thresholdPercent: {
       type: "number",
       label: "Quota skip threshold (%)",
       experimental_schema: z.number().int().min(0).max(100),
       default: 5,
+    },
+    delegationRule: {
+      type: "string",
+      experimental_multiline: true,
+      label: "Delegation rule",
+      default: DEFAULT_DELEGATION_RULE,
     },
   });
   // (read again inside handlers/CLI for freshness — settings.get() below)
@@ -40,7 +49,7 @@ export default async function plugin(bb: BbPluginApi) {
   // write from either the CLI or the RPC below, since both go through this
   // one store.
   const unsubscribeRolesChanged = store.onChange(() => bb.realtime.publish("roles-changed", {}));
-  registerRoleRpc(bb, { store });
+  registerRoleRpc(bb, { store, settings });
 
   const quota = createQuotaReader({
     sdk: bb.sdk,
@@ -53,7 +62,7 @@ export default async function plugin(bb: BbPluginApi) {
   const spawned = createSpawnedRegistry(bb);
   await spawned.load();
   const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
-  registerInstructions({ bb, store, spawned });
+  await registerInstructions({ bb, store, spawned, settings });
   registerMentions({ bb, store });
 
   // Builder C: CLI

@@ -9,7 +9,7 @@
 // needs this reconciliation pass). After each list load, one batched
 // `checkModels` call marks candidates whose live model is unknown; the form
 // re-checks its own in-progress candidates separately (RoleFormDialog).
-import { useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { useRealtime, useRealtimeConnectionState, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import type { PluginProvidersState } from "@get-bb/plugin-sdk/app";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,16 +19,19 @@ import { DeleteRoleDialog } from "./DeleteRoleDialog";
 import { RoleFormDialog, type RoleFormTarget } from "./RoleFormDialog";
 import { rpcContract } from "../../roles/rpc";
 import type { Role } from "../../roles/schema";
+import { DEFAULT_DELEGATION_RULE } from "../../roles/rule";
 
 const EMPTY_UNKNOWN = new Set<number>();
 
 export function RolesSettingsSection({ providers }: { providers: PluginProvidersState["providers"] }) {
   const rpc = useRpc<typeof rpcContract>();
+  const settings = useSettings();
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unknownByRole, setUnknownByRole] = useState<Map<string, Set<number>>>(new Map());
   const [formTarget, setFormTarget] = useState<RoleFormTarget | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
+  const [resettingRule, setResettingRule] = useState(false);
   // Bumped on every list load; a `checkModels` response only applies if
   // it's still the latest one requested, so a stale reply that resolves
   // after a newer list load can't overwrite its markers.
@@ -98,11 +101,32 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
     void refetch();
   }, [connectionState, refetch]);
 
+  const delegationRule = settings.values?.delegationRule;
+  const resetRule = useCallback(async () => {
+    setResettingRule(true);
+    try {
+      await rpc.call("resetDelegationRule", null);
+    } finally {
+      setResettingRule(false);
+    }
+  }, [rpc]);
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         The quota skip threshold above applies to every role's candidates.
       </p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm text-muted-foreground">Delegation rule is shown and edited by the host.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={resettingRule || delegationRule === DEFAULT_DELEGATION_RULE}
+          onClick={() => void resetRule()}
+        >
+          Reset delegation rule
+        </Button>
+      </div>
       {loadError !== null ? (
         <p className="text-sm text-destructive">Failed to load roles: {loadError}</p>
       ) : null}
