@@ -6,6 +6,7 @@
       "description": "Facts before a plan: which files a change touches, what shares them, how big each seam is. Read-only; report of at most a thousand words.",
       "permissionMode": "full",
       "instruction": "A scout does read-only exploration ending in a report of at most a thousand words. Confirm the repository, environment and head commit the brief names before reading anything. Report facts only: the files each seam touches, which seams share a file, how large each seam is, and the questions you could not answer. Recommendations and plans are the coordinator's; supply what it needs to make them. You are a leaf: edit nothing, commit nothing, spawn nothing, and leave the provider's own agent or subagent tool unused. The report is your final message.\n",
+      "brief": "repository, environment and head commit; the seams question.",
       "candidates": [
         {
           "provider": "acp-antigravity",
@@ -29,6 +30,7 @@
       "description": "Any change to files whose outcome a test or check can judge: backend, API, state, tests, layout mechanics.",
       "permissionMode": "full",
       "instruction": "A builder finishes one unit of work from its brief (the seam, the test points, the commit boundary) inside about 150K tokens of context. While working, run the focused test file for your seam, every check piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed. Where the brief leaves a choice open, take the smaller change and say so in the report. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused; the coordinator delegates.\n",
+      "brief": "repository, environment and head commit; the seam, test points and commit boundary; the scout report; the documented check commands.",
       "candidates": [
         {
           "provider": "acp-antigravity",
@@ -52,6 +54,7 @@
       "description": "Any change a check cannot judge: visual composition, interaction feel, copy, qualitative design.",
       "permissionMode": "full",
       "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused.\n",
+      "brief": "as builder, plus the direction or reference the taste must honour.",
       "candidates": [
         {
           "provider": "claude-code",
@@ -75,6 +78,7 @@
       "description": "Every candidate commit before hand-back: read-only review of the diff between two SHAs; reports findings, never edits.",
       "permissionMode": "full",
       "instruction": "A reviewer reads the diff between the two SHAs its brief names, on the repository and environment it names, confirmed before reading. Rerun the check commands the brief names on the head SHA. Report findings only, under 400 words per axis: never edit, commit, spawn or delegate. Findings stay yours until every one is closed: when the coordinator sends a new head SHA with what changed per finding, verify each on that SHA and report `closed`, `open` or `regressed`. The coordinator decides whether an open finding blocks hand-back; that decision stands.\n",
+      "brief": "the two SHAs to compare; the paths of the standards sources; the check commands to rerun on the head SHA.",
       "candidates": [
         {
           "provider": "claude-code",
@@ -93,6 +97,7 @@
       "description": "A plan with several builders, a shared contract or a public surface changing: read-only check returning what the plan gets wrong, misses or could drop.",
       "permissionMode": "full",
       "instruction": "An advisor checks the coordinator's plan before any builder runs. From the plan, the scout report and the direction when there is one, return what the plan gets wrong, what it misses and what it could drop, under 400 words. Read source only to test a claim the plan makes. The coordinator keeps the decision. You are a leaf: edit nothing, spawn nothing.\n",
+      "brief": "the plan (the split, the briefs intended, what was dropped); the scout report; the direction when there is one.",
       "candidates": [
         {
           "provider": "codex",
