@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { registerRoleRpc, rpcContract } from "./rpc";
 import { createRoleStore } from "./store";
 import { DEFAULT_DELEGATION_RULE } from "./rule";
+import { DEFAULT_DISABLED_ROLES } from "./settings";
 
 const builderCandidate = { provider: "p1", model: "m1", reasoningLevel: "medium" as const };
 
@@ -16,7 +17,7 @@ function setup(sdk: any = {}) {
     store,
     settings: {
       async experimental_set() {
-        return { delegationRule: DEFAULT_DELEGATION_RULE };
+        return { delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: DEFAULT_DISABLED_ROLES };
       },
     },
   });

@@ -34,7 +34,7 @@ function spawnedRecord(overrides: Partial<SpawnedRecord> = {}): SpawnedRecord {
 }
 
 describe("registerInstructions", () => {
-  const settings = { get: async () => ({ delegationRule: DEFAULT_DELEGATION_RULE }), onChange: () => {} };
+  const settings = { get: async () => ({ delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: "[]" }), onChange: () => {} };
 
   it("includes the rule and empty Cast when there are no roles", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
@@ -304,5 +304,18 @@ describe("registerInstructions", () => {
       projectId: "proj_1",
     });
     expect(text).toContain("- **advisor** — Checks a plan.");
+  });
+
+  it("omits disabled roles from the Cast", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-disabled" });
+    const store = createRoleStore(bb);
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [{ provider: "p", model: "m", reasoningLevel: "low" }] });
+    store.create({ id: "reviewer", description: "Reviews.", permissionMode: "full", candidates: [{ provider: "p", model: "m", reasoningLevel: "low" }] });
+    const spawned = createSpawnedRegistry(bb);
+    const disabledSettings = { get: async () => ({ delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: '["builder"]' }), onChange: () => {} };
+    await registerInstructions({ bb, store, spawned, settings: disabledSettings });
+    const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
+    expect(text).not.toContain("- **builder**");
+    expect(text).toContain("- **reviewer**");
   });
 });

@@ -116,6 +116,10 @@ never blocks save, the same "warn, never block" contract `bb roles
 create`/`update` use. A role's candidate order — its fallback order — is
 changed with move up/down buttons on each row. The page and the CLI share
 one store: a write from either refreshes the other's view live.
+The page also exposes one checkbox per role for the `disabledRoles` setting.
+Disabled roles are omitted from the Cast and refused by `bb roles spawn`;
+`list` and `show` mark them, while `quota` omits them. Export/import ignore
+this setting because it is plugin configuration, not cast data.
 
 ## Install
 

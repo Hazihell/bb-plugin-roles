@@ -10,6 +10,7 @@ import { findMissingModels, formatUnknownModelMessage, listProviderModels } from
 import { candidateSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
 import type { RoleStore } from "./store";
 import { DEFAULT_DELEGATION_RULE } from "./rule";
+import { parseDisabledRoles, serializeDisabledRoles } from "./settings";
 
 const modelCheckResultSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -52,12 +53,16 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ delegationRule: z.string() }),
   },
+  setDisabledRoles: {
+    input: z.object({ roleIds: z.array(z.string()) }).strict(),
+    output: z.object({ roleIds: z.array(z.string()) }),
+  },
 });
 
 export interface RoleRpcDeps {
   store: RoleStore;
   settings: {
-    experimental_set(values: { delegationRule?: string | null }): Promise<{ delegationRule: string }>;
+    experimental_set(values: { delegationRule?: string | null; disabledRoles?: string | null }): Promise<{ delegationRule?: string; disabledRoles?: string }>;
   };
 }
 
@@ -127,7 +132,11 @@ export function registerRoleRpc(bb: BbPluginApi, deps: RoleRpcDeps): void {
     },
     async resetDelegationRule() {
       const values = await deps.settings.experimental_set({ delegationRule: DEFAULT_DELEGATION_RULE });
-      return { delegationRule: values.delegationRule };
+      return { delegationRule: values.delegationRule ?? DEFAULT_DELEGATION_RULE };
+    },
+    async setDisabledRoles({ roleIds }) {
+      const values = await deps.settings.experimental_set({ disabledRoles: serializeDisabledRoles(roleIds) });
+      return { roleIds: [...parseDisabledRoles(values.disabledRoles)] };
     },
   });
 }

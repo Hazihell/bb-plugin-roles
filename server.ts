@@ -19,6 +19,7 @@ import { createSpawner } from "./roles/spawn";
 import { createSpawnedRegistry } from "./roles/spawned";
 import { createRoleStore } from "./roles/store";
 import { DEFAULT_DELEGATION_RULE } from "./roles/rule";
+import { DEFAULT_DISABLED_ROLES } from "./roles/settings";
 
 export default async function plugin(bb: BbPluginApi) {
   bb.log.info("loaded");
@@ -39,6 +40,23 @@ export default async function plugin(bb: BbPluginApi) {
       experimental_multiline: true,
       label: "Delegation rule",
       default: DEFAULT_DELEGATION_RULE,
+    },
+    disabledRoles: {
+      type: "string",
+      experimental_multiline: true,
+      label: "Disabled roles",
+      description: "JSON array of role ids disabled in the Cast and CLI.",
+      experimental_schema: z.string().superRefine((value, context) => {
+        try {
+          const parsed: unknown = JSON.parse(value);
+          if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string")) {
+            context.addIssue({ code: "custom", message: "must be a JSON array of role ids" });
+          }
+        } catch {
+          context.addIssue({ code: "custom", message: "must be a JSON array of role ids" });
+        }
+      }),
+      default: DEFAULT_DISABLED_ROLES,
     },
   });
   // (read again inside handlers/CLI for freshness — settings.get() below)

@@ -53,6 +53,7 @@ function setup(opts: {
   quotaByProvider?: Record<string, ProviderQuota>;
   held?: Set<string>;
   heldUntil?: Map<string, { resetsAtMs: number; hasResetTime: boolean }>;
+  disabledRoles?: string;
 } = {}) {
   const { bb, harness } = createFakePluginHost({
     pluginId: "roles-cli-test",
@@ -62,7 +63,7 @@ function setup(opts: {
   const quota = fakeQuotaReader(opts.quotaByProvider ?? {});
   const blocks = fakeBlocks(opts.held, opts.heldUntil);
   const spawned = createSpawnedRegistry(bb);
-  const settings = { get: async () => ({ thresholdPercent: 5 }) };
+  const settings = { get: async () => ({ thresholdPercent: 5, disabledRoles: opts.disabledRoles ?? "[]" }) };
   const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
   const roles: RolesDeps = { store, quota, blocks, spawner, settings, spawned };
   registerCli(bb, roles);
@@ -216,6 +217,21 @@ describe("bb roles list / show", () => {
     const missing = await harness.behavior.runCli(["show", "nope"], {});
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toContain("nope");
+  });
+
+  it("marks disabled roles in list and show", async () => {
+    const { harness, store } = setup({ disabledRoles: '["builder"]' });
+    store.create({ id: "builder", description: "Builds things.", permissionMode: "full", candidates: [builderCandidate] });
+    expect((await harness.behavior.runCli(["list"], {})).stdout).toContain("yes");
+    expect(JSON.parse((await harness.behavior.runCli(["show", "builder", "--json"], {})).stdout).disabled).toBe(true);
+  });
+
+  it("refuses to spawn a disabled role before any environment or spawn work", async () => {
+    const { harness, store } = setup({ disabledRoles: '["builder"]' });
+    store.create({ id: "builder", description: "Builds things.", permissionMode: "full", candidates: [builderCandidate] });
+    const result = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x"], {});
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("role builder is disabled in the Roles plugin settings\n");
   });
 
   it("shows, creates, updates, and clears a role brief", async () => {

@@ -31,13 +31,14 @@ import { evaluateCandidates, formatRefusal, formatResetSuffix, type ResetKind } 
 import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./spawn";
 import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
+import { parseDisabledRoles } from "./settings";
 
 export interface RolesDeps {
   store: RoleStore;
   quota: QuotaReader;
   blocks: BlockRegistry;
   spawner: Spawner;
-  settings: { get(): Promise<{ thresholdPercent: number }> };
+  settings: { get(): Promise<{ thresholdPercent: number; disabledRoles?: string }> };
   spawned: SpawnedRegistry;
 }
 
@@ -305,6 +306,10 @@ async function cmdSpawn(
   roles: RolesDeps,
 ): Promise<PluginCliResult> {
   const roleId = requireFlag(flags, "role");
+  const disabledRoles = parseDisabledRoles((await roles.settings.get()).disabledRoles);
+  if (disabledRoles.has(roleId)) {
+    throw usageError(`role ${roleId} is disabled in the Roles plugin settings`);
+  }
   const prompt = requireFlag(flags, "prompt");
   const reasoningRaw = flagValue(flags, "reasoning");
   const reasoningOverride = reasoningRaw === undefined ? undefined : parseReasoningLevel(reasoningRaw);
@@ -354,32 +359,35 @@ async function cmdSpawn(
 
 // --- list / show ------------------------------------------------------
 
-function cmdList(flags: Map<string, string[]>, roles: RolesDeps): PluginCliResult {
+async function cmdList(flags: Map<string, string[]>, roles: RolesDeps): Promise<PluginCliResult> {
   const rolesList = roles.store.list();
+  const disabledRoles = parseDisabledRoles((await roles.settings.get()).disabledRoles);
   if (hasFlag(flags, "json")) {
-    return { exitCode: 0, stdout: `${JSON.stringify(rolesList)}\n` };
+    return { exitCode: 0, stdout: `${JSON.stringify(rolesList.map((role) => ({ ...role, disabled: disabledRoles.has(role.id) })))}\n` };
   }
   const rows = rolesList.map((role) => {
     const first = role.candidates[0];
     const firstStr = first === undefined ? "-" : `${first.provider}:${resolveModel(first.model, first.reasoningLevel)}`;
-    return [role.id, role.description, firstStr, String(role.candidates.length)];
+    return [role.id, role.description, firstStr, String(role.candidates.length), disabledRoles.has(role.id) ? "yes" : "no"];
   });
-  const table = formatTable(["id", "description", "first candidate", "candidates"], rows);
+  const table = formatTable(["id", "description", "first candidate", "candidates", "disabled"], rows);
   return { exitCode: 0, stdout: `${table}\n` };
 }
 
-function cmdShow(positionals: string[], flags: Map<string, string[]>, roles: RolesDeps): PluginCliResult {
+async function cmdShow(positionals: string[], flags: Map<string, string[]>, roles: RolesDeps): Promise<PluginCliResult> {
   const id = positionals[0];
   if (id === undefined) throw usageError("show requires an id");
   const role = roles.store.get(id);
   if (role === null) throw usageError(`No role with id "${id}"`);
+  const disabled = parseDisabledRoles((await roles.settings.get()).disabledRoles).has(role.id);
   if (hasFlag(flags, "json")) {
-    return { exitCode: 0, stdout: `${JSON.stringify(role)}\n` };
+    return { exitCode: 0, stdout: `${JSON.stringify({ ...role, disabled })}\n` };
   }
   const lines = [
     `id: ${role.id}`,
     `description: ${role.description}`,
     `permissionMode: ${role.permissionMode}`,
+    `disabled: ${disabled ? "yes" : "no"}`,
     `instruction: ${role.instruction ?? "-"}`,
     `brief: ${role.brief ?? "-"}`,
     "candidates:",
@@ -511,7 +519,8 @@ async function cmdImport(
 // --- quota ----------------------------------------------------------------
 
 async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise<PluginCliResult> {
-  const { thresholdPercent } = await roles.settings.get();
+  const { thresholdPercent, disabledRoles: disabledRolesValue } = await roles.settings.get();
+  const disabledRoles = parseDisabledRoles(disabledRolesValue);
   const rolesList = roles.store.list();
   const statusByProvider = new Map<string, string>();
 
@@ -529,7 +538,7 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
   }
   const rows: Row[] = [];
 
-  for (const role of rolesList) {
+  for (const role of rolesList.filter((candidate) => !disabledRoles.has(candidate.id))) {
     const evaluations = await evaluateCandidates(role, {
       quota: roles.quota,
       blocks: roles.blocks,
@@ -629,9 +638,9 @@ async function runRolesCli(
       case "spawn":
         return await cmdSpawn(flags, ctx, bb, roles);
       case "list":
-        return cmdList(flags, roles);
+        return await cmdList(flags, roles);
       case "show":
-        return cmdShow(positionals, flags, roles);
+        return await cmdShow(positionals, flags, roles);
       case "create":
         return await cmdCreate(flags, ctx, bb, roles);
       case "update":

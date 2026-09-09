@@ -17,9 +17,11 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
 import { DeleteRoleDialog } from "./DeleteRoleDialog";
 import { RoleFormDialog, type RoleFormTarget } from "./RoleFormDialog";
+import { Checkbox } from "../ui/checkbox";
 import { rpcContract } from "../../roles/rpc";
 import type { Role } from "../../roles/schema";
 import { DEFAULT_DELEGATION_RULE } from "../../roles/rule";
+import { parseDisabledRoles } from "../../roles/settings";
 
 const EMPTY_UNKNOWN = new Set<number>();
 
@@ -32,6 +34,7 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
   const [formTarget, setFormTarget] = useState<RoleFormTarget | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
   const [resettingRule, setResettingRule] = useState(false);
+  const [disabledRoles, setDisabledRoles] = useState<Set<string>>(() => parseDisabledRoles(settings.values?.disabledRoles as string | undefined));
   // Bumped on every list load; a `checkModels` response only applies if
   // it's still the latest one requested, so a stale reply that resolves
   // after a newer list load can't overwrite its markers.
@@ -102,6 +105,15 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
   }, [connectionState, refetch]);
 
   const delegationRule = settings.values?.delegationRule;
+  useEffect(() => {
+    setDisabledRoles(parseDisabledRoles(settings.values?.disabledRoles as string | undefined));
+  }, [settings.values?.disabledRoles]);
+  const toggleDisabled = useCallback(async (roleId: string, disabled: boolean) => {
+    const next = new Set(disabledRoles);
+    if (disabled) next.add(roleId); else next.delete(roleId);
+    const result = await rpc.call("setDisabledRoles", { roleIds: [...next] });
+    setDisabledRoles(new Set(result.roleIds));
+  }, [disabledRoles, rpc]);
   const resetRule = useCallback(async () => {
     setResettingRule(true);
     try {
@@ -147,6 +159,8 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
             <RoleCard
               key={role.id}
               role={role}
+              disabled={disabledRoles.has(role.id)}
+              onDisabledChange={(disabled) => void toggleDisabled(role.id, disabled)}
               unknownIndices={unknownByRole.get(role.id) ?? EMPTY_UNKNOWN}
               onEdit={() => setFormTarget({ mode: "edit", role })}
               onDelete={() => setPendingDelete(role)}
@@ -175,11 +189,15 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
 
 function RoleCard({
   role,
+  disabled,
+  onDisabledChange,
   unknownIndices,
   onEdit,
   onDelete,
 }: {
   role: Role;
+  disabled: boolean;
+  onDisabledChange: (disabled: boolean) => void;
   unknownIndices: ReadonlySet<number>;
   onEdit: () => void;
   onDelete: () => void;
@@ -190,6 +208,10 @@ function RoleCard({
         <div>
           <div className="font-medium">{role.id}</div>
           <div className="text-sm text-muted-foreground">{role.description}</div>
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <Checkbox aria-label={`Disable ${role.id}`} checked={disabled} onCheckedChange={(checked) => onDisabledChange(checked === true)} />
+            Disabled
+          </label>
         </div>
         <div className="flex gap-1">
           <Button variant="ghost" size="icon" aria-label={`Edit ${role.id}`} onClick={onEdit}>

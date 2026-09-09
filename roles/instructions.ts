@@ -12,6 +12,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Role } from "./schema";
 import type { RoleStore } from "./store";
 import type { SpawnedRegistry } from "./spawned";
+import { parseDisabledRoles } from "./settings";
 
 const MAX_LENGTH = 4096;
 const DESCRIPTION_MAX = 200;
@@ -53,14 +54,17 @@ export async function registerInstructions(deps: {
   bb: BbPluginApi;
   store: RoleStore;
   spawned: SpawnedRegistry;
-  settings: { get(): Promise<{ delegationRule: string }>; onChange(listener: (next: { delegationRule: string }) => void): void };
+  settings: { get(): Promise<{ delegationRule: string; disabledRoles?: string }>; onChange(listener: (next: { delegationRule: string; disabledRoles?: string }) => void): void };
 }): Promise<void> {
   const { bb, store, spawned, settings } = deps;
 
   let roles: Role[] = store.list();
-  let delegationRule = (await settings.get()).delegationRule;
+  const initialSettings = await settings.get();
+  let delegationRule = initialSettings.delegationRule;
+  let disabledRoles = parseDisabledRoles(initialSettings.disabledRoles);
   settings.onChange((next) => {
     delegationRule = next.delegationRule;
+    disabledRoles = parseDisabledRoles(next.disabledRoles);
   });
   store.onChange(() => {
     roles = store.list();
@@ -72,11 +76,11 @@ export async function registerInstructions(deps: {
     const roleSection = record === null || role === null
       ? null
       : buildRoleSection(role, record.parentThreadId);
-    if (record !== null) return roleSection === null ? truncate(buildCastSection(roles), MAX_LENGTH) : truncate(roleSection, MAX_LENGTH);
+    if (record !== null) return roleSection === null ? truncate(buildCastSection(roles.filter((candidate) => !disabledRoles.has(candidate.id))), MAX_LENGTH) : truncate(roleSection, MAX_LENGTH);
 
     const rule = truncate(delegationRule, MAX_LENGTH);
     const separator = "\n\n";
-    const cast = truncate(buildCastSection(roles), Math.max(0, MAX_LENGTH - rule.length - separator.length));
+    const cast = truncate(buildCastSection(roles.filter((role) => !disabledRoles.has(role.id))), Math.max(0, MAX_LENGTH - rule.length - separator.length));
     return rule + separator + cast;
   });
 }

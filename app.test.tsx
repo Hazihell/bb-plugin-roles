@@ -35,6 +35,7 @@ function makeRole(overrides: Partial<Role> = {}): Role {
 function createRolesRpcStub(initialRoles: Role[], providerModels: { provider: string; models: string[] }[] = []) {
   let roles = initialRoles;
   const saveCalls: { role: SaveRoleInput; mode: "create" | "update" }[] = [];
+  const disabledCalls: string[][] = [];
   const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
     listRoles: () => roles,
     saveRole: ({ role, mode }) => {
@@ -65,10 +66,12 @@ function createRolesRpcStub(initialRoles: Role[], providerModels: { provider: st
         known: candidate.model !== "missing",
       })),
     listProviderModels: () => providerModels,
+    setDisabledRoles: ({ roleIds }) => { disabledCalls.push(roleIds); return { roleIds }; },
   };
   return {
     handlers,
     saveCalls,
+    disabledCalls,
     getRoles: () => roles,
     /** Simulates a durable write the ephemeral realtime signal wouldn't replay. */
     setRoles: (next: Role[]) => {
@@ -90,19 +93,18 @@ async function renderRolesSection(
   roster: {
     providerModels?: { provider: string; models: string[] }[];
     providers?: { id: string; displayName: string }[];
+    disabledRoles?: string;
   } = {},
 ) {
   const app = await loadPluginApp(() => import("./app"));
   const registration = app.settingsSections[0];
   if (registration === undefined) throw new Error("settingsSection not registered");
   const stub = createRolesRpcStub(initialRoles, roster.providerModels ?? []);
-  const slot = renderSlot(
-    registration,
-    {},
-    roster.providers === undefined
-      ? { rpc: stub.handlers }
-      : { rpc: stub.handlers, providers: { status: "ready", providers: makeProviders(roster.providers) } },
-  );
+  const slot = renderSlot(registration, {}, {
+    rpc: stub.handlers,
+    settings: { disabledRoles: roster.disabledRoles ?? "[]" },
+    ...(roster.providers === undefined ? {} : { providers: { status: "ready", providers: makeProviders(roster.providers) } }),
+  });
   return { slot, stub };
 }
 
@@ -117,6 +119,13 @@ describe("roles settings section", () => {
     expect(slot.getByText("Builds things.")).toBeTruthy();
     expect(slot.getByText("reviewer")).toBeTruthy();
     expect(slot.getByText("Reviews things.")).toBeTruthy();
+  });
+
+  it("persists a disabled-role checkbox", async () => {
+    const { slot, stub } = await renderRolesSection([makeRole({ id: "builder" })]);
+    await slot.findByText("builder");
+    fireEvent.click(slot.getByRole("checkbox", { name: "Disable builder" }));
+    await waitFor(() => expect(stub.disabledCalls).toEqual([["builder"]]));
   });
 
   it("saves the form via saveRole and refetches the list on the realtime signal", async () => {
