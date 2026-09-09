@@ -128,6 +128,46 @@ describe("roles settings section", () => {
     await waitFor(() => expect(stub.disabledCalls).toEqual([["builder"]]));
   });
 
+  it("includes both roles when two disabled toggles happen before the first RPC resolves", async () => {
+    let resolveFirst: ((value: { roleIds: string[] }) => void) | undefined;
+    let resolveSecond: ((value: { roleIds: string[] }) => void) | undefined;
+    const disabledCalls: string[][] = [];
+    const handlers: PluginRpcTestHandlers<typeof rpcContract> = {
+      listRoles: () => [makeRole({ id: "builder" }), makeRole({ id: "reviewer" })],
+      saveRole: () => { throw new Error("not used in this test"); },
+      deleteRole: () => ({ deleted: false }),
+      checkModels: ({ candidates }) => candidates.map((candidate, index) => ({
+        index,
+        provider: candidate.provider,
+        model: candidate.model,
+        resolvedModel: candidate.model,
+        known: true,
+      })),
+      setDisabledRoles: ({ roleIds }) => {
+        disabledCalls.push(roleIds);
+        return new Promise((resolve) => {
+          if (disabledCalls.length === 1) resolveFirst = resolve;
+          else resolveSecond = resolve;
+        });
+      },
+    };
+    const app = await loadPluginApp(() => import("./app"));
+    const registration = app.settingsSections[0];
+    if (registration === undefined) throw new Error("settingsSection not registered");
+    const slot = renderSlot(registration, {}, { rpc: handlers, settings: { disabledRoles: "[]" } });
+    await slot.findByText("builder");
+
+    fireEvent.click(slot.getByRole("checkbox", { name: "Disable builder" }));
+    fireEvent.click(slot.getByRole("checkbox", { name: "Disable reviewer" }));
+
+    await waitFor(() => expect(disabledCalls).toEqual([["builder"], ["builder", "reviewer"]]));
+    resolveSecond?.({ roleIds: ["builder", "reviewer"] });
+    resolveFirst?.({ roleIds: ["builder"] });
+    await waitFor(() => expect(disabledCalls).toHaveLength(2));
+    expect(slot.getByRole("checkbox", { name: "Disable builder" }).getAttribute("aria-checked")).toBe("true");
+    expect(slot.getByRole("checkbox", { name: "Disable reviewer" }).getAttribute("aria-checked")).toBe("true");
+  });
+
   it("saves the form via saveRole and refetches the list on the realtime signal", async () => {
     const { slot, stub } = await renderRolesSection([]);
     await slot.findByText("No roles yet.");

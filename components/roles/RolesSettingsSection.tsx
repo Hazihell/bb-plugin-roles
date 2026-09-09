@@ -35,6 +35,7 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
   const [pendingDelete, setPendingDelete] = useState<Role | null>(null);
   const [resettingRule, setResettingRule] = useState(false);
   const [disabledRoles, setDisabledRoles] = useState<Set<string>>(() => parseDisabledRoles(settings.values?.disabledRoles as string | undefined));
+  const disabledRolesRef = useRef(disabledRoles);
   // Bumped on every list load; a `checkModels` response only applies if
   // it's still the latest one requested, so a stale reply that resolves
   // after a newer list load can't overwrite its markers.
@@ -106,14 +107,22 @@ export function RolesSettingsSection({ providers }: { providers: PluginProviders
 
   const delegationRule = settings.values?.delegationRule;
   useEffect(() => {
-    setDisabledRoles(parseDisabledRoles(settings.values?.disabledRoles as string | undefined));
+    const next = parseDisabledRoles(settings.values?.disabledRoles as string | undefined);
+    disabledRolesRef.current = next;
+    setDisabledRoles(next);
   }, [settings.values?.disabledRoles]);
   const toggleDisabled = useCallback(async (roleId: string, disabled: boolean) => {
-    const next = new Set(disabledRoles);
+    const next = new Set(disabledRolesRef.current);
     if (disabled) next.add(roleId); else next.delete(roleId);
+    disabledRolesRef.current = next;
+    setDisabledRoles(next);
     const result = await rpc.call("setDisabledRoles", { roleIds: [...next] });
-    setDisabledRoles(new Set(result.roleIds));
-  }, [disabledRoles, rpc]);
+    if (disabledRolesRef.current === next) {
+      const resolved = new Set(result.roleIds);
+      disabledRolesRef.current = resolved;
+      setDisabledRoles(resolved);
+    }
+  }, [rpc]);
   const resetRule = useCallback(async () => {
     setResettingRule(true);
     try {

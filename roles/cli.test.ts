@@ -67,7 +67,7 @@ function setup(opts: {
   const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
   const roles: RolesDeps = { store, quota, blocks, spawner, settings, spawned };
   registerCli(bb, roles);
-  return { bb, harness, store, quota, blocks, spawned, spawner };
+  return { bb, harness, store, quota, blocks, spawned, spawner, settings };
 }
 
 const builderCandidate = { provider: "p1", model: "m1-{level}", reasoningLevel: "medium" as const };
@@ -351,11 +351,12 @@ function fakeHost(id: string, name: string): any {
 
 describe("bb roles export / import", () => {
   it("export then import via --machine reproduces the roles", async () => {
-    const source = setup();
+    const source = setup({ disabledRoles: '["builder"]' });
     source.store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
 
     const exported = await source.harness.behavior.runCli(["export"], {});
     expect(exported.exitCode).toBe(0);
+    expect(JSON.parse(exported.stdout)).not.toHaveProperty("disabledRoles");
 
     const target = setup({
       sdk: {
@@ -398,6 +399,7 @@ describe("bb roles export / import", () => {
             content: JSON.stringify({
               version: 1,
               roles: [{ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] }],
+              disabledRoles: ["builder"],
             }),
             contentEncoding: "utf8",
             path: "/tmp/roles.json",
@@ -418,6 +420,7 @@ describe("bb roles export / import", () => {
     expect(JSON.parse(result.stdout)).toEqual({ imported: 1, removed: 1, roles: ["builder"] });
     expect(target.store.get("scout")).toBeNull();
     expect(target.store.get("builder")?.description).toBe("Builds.");
+    await expect(target.settings.get()).resolves.toEqual({ thresholdPercent: 5, disabledRoles: "[]" });
   });
 
   it("import without a thread and without --machine exits 1", async () => {

@@ -41,7 +41,7 @@ fallback by hand.
 
 ## Everywhere else
 
-Every thread's instructions carry the cast, one line per role — it is
+Every thread's instructions carry the cast, one line per enabled role — it is
 mandatory and always renders first; a thread this plugin spawned also
 carries that role's own instruction, in whatever budget is left under the
 4096-character cap. Typing `@builder` in the composer hands the agent the

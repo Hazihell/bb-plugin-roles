@@ -11,17 +11,21 @@ const builderCandidate = { provider: "p1", model: "m1", reasoningLevel: "medium"
 function setup(sdk: any = {}) {
   const { bb, harness } = createFakePluginHost({ pluginId: "roles-rpc-test", sdk });
   const store = createRoleStore(bb);
+  let disabledRoles = DEFAULT_DISABLED_ROLES;
+  const settingsCalls: { disabledRoles?: string | null }[] = [];
   // Mirrors server.ts: every store write, from either surface, publishes.
   store.onChange(() => bb.realtime.publish("roles-changed", {}));
   registerRoleRpc(bb, {
     store,
     settings: {
-      async experimental_set() {
-        return { delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: DEFAULT_DISABLED_ROLES };
+      async experimental_set(values) {
+        settingsCalls.push(values);
+        if (values.disabledRoles !== undefined) disabledRoles = values.disabledRoles ?? DEFAULT_DISABLED_ROLES;
+        return { delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles };
       },
     },
   });
-  return { bb, harness, store };
+  return { bb, harness, store, settingsCalls };
 }
 
 async function callRpc<Method extends keyof typeof rpcContract>(
@@ -167,6 +171,20 @@ describe("saveRole", () => {
     });
 
     expect(store.get("builder")?.instruction).toBeUndefined();
+  });
+});
+
+describe("setDisabledRoles", () => {
+  it("persists role ids and validates their slug format", async () => {
+    const { harness, store, settingsCalls } = setup();
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+    store.create({ id: "reviewer", description: "Reviews.", permissionMode: "full", candidates: [builderCandidate] });
+
+    await expect(callRpc(harness, "setDisabledRoles", { roleIds: ["reviewer", "builder", "reviewer"] })).resolves.toEqual({
+      roleIds: ["builder", "reviewer"],
+    });
+    expect(settingsCalls).toEqual([{ disabledRoles: '["builder","reviewer"]' }]);
+    await expect(callRpc(harness, "setDisabledRoles", { roleIds: ["Builder"] })).rejects.toThrow();
   });
 });
 

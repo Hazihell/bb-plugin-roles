@@ -306,6 +306,25 @@ describe("registerInstructions", () => {
     expect(text).toContain("- **advisor** — Checks a plan.");
   });
 
+  it("reflects a changed disabledRoles setting on the next resolution", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-live-disabled" });
+    const store = createRoleStore(bb);
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [{ provider: "p", model: "m", reasoningLevel: "low" }] });
+    store.create({ id: "reviewer", description: "Reviews.", permissionMode: "full", candidates: [{ provider: "p", model: "m", reasoningLevel: "low" }] });
+    let onChange: ((next: { delegationRule: string; disabledRoles?: string }) => void) | undefined;
+    const liveSettings = {
+      get: async () => ({ delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: "[]" }),
+      onChange: (listener: (next: { delegationRule: string; disabledRoles?: string }) => void) => { onChange = listener; },
+    };
+    const spawned = createSpawnedRegistry(bb);
+    await registerInstructions({ bb, store, spawned, settings: liveSettings });
+
+    onChange!({ delegationRule: DEFAULT_DELEGATION_RULE, disabledRoles: '["builder"]' });
+    const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
+    expect(text).not.toContain("- **builder**");
+    expect(text).toContain("- **reviewer**");
+  });
+
   it("omits disabled roles from the Cast", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-disabled" });
     const store = createRoleStore(bb);

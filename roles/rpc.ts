@@ -7,7 +7,7 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { findMissingModels, formatUnknownModelMessage, listProviderModels } from "./models";
-import { candidateSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
+import { candidateSchema, roleIdSchema, roleSchema, saveRoleInputSchema, type Role } from "./schema";
 import type { RoleStore } from "./store";
 import { DEFAULT_DELEGATION_RULE } from "./rule";
 import { parseDisabledRoles, serializeDisabledRoles } from "./settings";
@@ -54,7 +54,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ delegationRule: z.string() }),
   },
   setDisabledRoles: {
-    input: z.object({ roleIds: z.array(z.string()) }).strict(),
+    input: z.object({ roleIds: z.array(roleIdSchema) }).strict(),
     output: z.object({ roleIds: z.array(z.string()) }),
   },
 });
