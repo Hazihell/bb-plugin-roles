@@ -227,6 +227,38 @@ describe("spawnByRole", () => {
     expect(spawned.get("th_child_1")?.quotaAtEnd).toEqual({ remainingPercent: 2, resetsAt: null });
   });
 
+  it("preserves a stage change during the quota refresh", async () => {
+    let releaseRefresh!: () => void;
+    const refreshBlocked = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const quota: QuotaReader = {
+      get: async () => okQuota(),
+      refresh: async () => {
+        await refreshBlocked;
+        return okQuota();
+      },
+    };
+    const { harness, spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, quota });
+    await spawner.spawnByRole({ ...baseArgs });
+
+    const completion = harness.behavior.emitThreadEvent("thread.idle", {
+      thread: makeThreadResponse({ id: "th_child_1" }),
+      lastAssistantText: "done",
+    });
+    await Promise.resolve();
+    const current = spawned.get("th_child_1");
+    if (current === null) throw new Error("missing child record");
+    await spawned.put({ ...current, stage: "respawning", error: "rate limited" });
+    releaseRefresh();
+    await completion;
+
+    expect(spawned.get("th_child_1")).toMatchObject({
+      stage: "respawning",
+      error: "rate limited",
+      quotaAtEnd: { remainingPercent: 100, resetsAt: null },
+      endedAtMs: expect.any(Number),
+    });
+  });
+
   it("a reasoning override changes both the resolved model and the reasoning level", async () => {
     const { spawner, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() } });
 

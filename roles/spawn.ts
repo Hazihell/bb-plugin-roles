@@ -388,8 +388,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
       if (record === null || record.provider === undefined || record.model === undefined) return;
       try {
         const quotaAtEnd = snapshotForQuota(await quota.refresh(record.provider, { force: true }), record.model);
-        await spawned.put({
-          ...record,
+        await spawned.update(childThreadId, {
           quotaAtEnd,
           endedAtMs: Date.now(),
           updatedAtMs: Date.now(),

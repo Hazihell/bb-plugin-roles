@@ -93,6 +93,8 @@ export interface SpawnedRegistry {
   list(): SpawnedRecord[];
   get(childThreadId: string): SpawnedRecord | null;
   put(record: SpawnedRecord): Promise<void>;
+  /** Atomically merges a patch into the latest in-memory record, then persists it. */
+  update(childThreadId: string, patch: Partial<SpawnedRecord>): Promise<void>;
   /**
    * In-memory atomic claim: false when the record is missing or its stage
    * isn't "active" (a duplicate event, or one already being handled); else
@@ -138,6 +140,14 @@ export function createSpawnedRegistry(bb: BbPluginApi): SpawnedRegistry {
     await bb.storage.kv.set(keyFor(record.childThreadId), record);
   }
 
+  async function update(childThreadId: string, patch: Partial<SpawnedRecord>): Promise<void> {
+    const current = byId.get(childThreadId);
+    if (current === undefined) return;
+    const next = { ...current, ...patch, childThreadId };
+    byId.set(childThreadId, next);
+    await bb.storage.kv.set(keyFor(childThreadId), next);
+  }
+
   async function claim(childThreadId: string): Promise<boolean> {
     const current = byId.get(childThreadId);
     if (current === undefined || current.stage !== "active") return false;
@@ -154,5 +164,5 @@ export function createSpawnedRegistry(bb: BbPluginApi): SpawnedRegistry {
     return true;
   }
 
-  return { load, list, get, put, claim };
+  return { load, list, get, put, update, claim };
 }
