@@ -22,6 +22,11 @@ export type SpawnedStage =
   | "failed"
   | "exhausted";
 
+export interface QuotaSnapshot {
+  remainingPercent: number | null;
+  resetsAt: string | null;
+}
+
 export interface SpawnedRecord {
   childThreadId: string;
   roleId: string;
@@ -38,6 +43,12 @@ export interface SpawnedRecord {
   error: string | null;
   createdAtMs: number;
   updatedAtMs: number;
+  provider: string;
+  model: string;
+  level: ReasoningLevel;
+  quotaAtSpawn: QuotaSnapshot;
+  quotaAtEnd: QuotaSnapshot | null;
+  endedAtMs: number | null;
 }
 
 const spawnedStageSchema = z.enum([
@@ -62,6 +73,18 @@ const spawnedRecordSchema = z.object({
   error: z.string().nullable(),
   createdAtMs: z.number(),
   updatedAtMs: z.number(),
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  level: reasoningLevelSchema,
+  quotaAtSpawn: z.object({
+    remainingPercent: z.number().nullable(),
+    resetsAt: z.string().nullable(),
+  }),
+  quotaAtEnd: z.object({
+    remainingPercent: z.number().nullable(),
+    resetsAt: z.string().nullable(),
+  }).nullable(),
+  endedAtMs: z.number().nullable(),
 });
 
 export interface SpawnedRegistry {

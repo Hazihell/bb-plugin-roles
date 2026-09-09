@@ -541,3 +541,43 @@ describe("bb roles quota", () => {
     expect(textResult.stdout).toContain(`held, earliest release ${iso}, needs fresh headroom`);
   });
 });
+
+describe("bb roles usage", () => {
+  it("prints a null delta when the provider reset changed", async () => {
+    const { harness, spawned } = setup();
+    await spawned.put({
+      childThreadId: "th_child_1",
+      roleId: "builder",
+      candidateIndex: 0,
+      prompt: "x",
+      title: null,
+      parentThreadId: null,
+      environmentId: "env_1",
+      reasoningOverride: null,
+      stage: "active",
+      replacedBy: null,
+      error: null,
+      createdAtMs: Date.parse("2026-09-09T10:00:00Z"),
+      updatedAtMs: Date.parse("2026-09-09T10:00:00Z"),
+      provider: "p1",
+      model: "m1-medium",
+      level: "medium",
+      quotaAtSpawn: { remainingPercent: 80, resetsAt: "2026-09-09T12:00:00Z" },
+      quotaAtEnd: { remainingPercent: 95, resetsAt: "2026-09-09T17:00:00Z" },
+      endedAtMs: Date.parse("2026-09-09T11:00:00Z"),
+    });
+
+    const result = await harness.behavior.runCli(["usage", "th_child_1", "--json"], {});
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual([expect.objectContaining({
+      thread: "th_child_1",
+      provider: "p1",
+      model: "m1-medium",
+      quotaAtSpawn: { remainingPercent: 80, resetsAt: "2026-09-09T12:00:00Z" },
+      quotaAtEnd: { remainingPercent: 95, resetsAt: "2026-09-09T17:00:00Z" },
+      delta: null,
+      spawnedAt: "2026-09-09T10:00:00.000Z",
+      endedAt: "2026-09-09T11:00:00.000Z",
+    })]);
+  });
+});

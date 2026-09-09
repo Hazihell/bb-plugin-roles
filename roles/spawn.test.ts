@@ -168,6 +168,24 @@ describe("spawnByRole", () => {
     expect(record?.candidateIndex).toBe(0);
     // The response's own environment id, not the "env_x" passed to spawn.
     expect(record?.environmentId).toBe("env_for_th_child_1");
+    expect(record?.provider).toBe("p1");
+    expect(record?.model).toBe("m1-medium");
+    expect(record?.quotaAtSpawn).toEqual({ remainingPercent: 100, resetsAt: null });
+  });
+
+  it("records a fresh quota snapshot when the child becomes idle", async () => {
+    const { harness, spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() } });
+    await spawner.spawnByRole({ ...baseArgs });
+
+    await harness.behavior.emitThreadEvent("thread.idle", {
+      thread: makeThreadResponse({ id: "th_child_1" }),
+      lastAssistantText: "done",
+    });
+
+    expect(spawned.get("th_child_1")).toMatchObject({
+      quotaAtEnd: { remainingPercent: 100, resetsAt: null },
+      endedAtMs: expect.any(Number),
+    });
   });
 
   it("a reasoning override changes both the resolved model and the reasoning level", async () => {

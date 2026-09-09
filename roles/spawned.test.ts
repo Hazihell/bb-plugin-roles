@@ -17,6 +17,12 @@ function makeRecord(overrides: Partial<SpawnedRecord> = {}): SpawnedRecord {
     error: null,
     createdAtMs: 0,
     updatedAtMs: 0,
+    provider: "p1",
+    model: "m1",
+    level: "medium",
+    quotaAtSpawn: { remainingPercent: 80, resetsAt: "2026-01-01T00:00:00Z" },
+    quotaAtEnd: null,
+    endedAtMs: null,
     ...overrides,
   };
 }

@@ -29,7 +29,7 @@ import {
 } from "./schema";
 import { evaluateCandidates, formatRefusal, formatResetSuffix, type ResetKind } from "./select";
 import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./spawn";
-import type { SpawnedRegistry } from "./spawned";
+import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
 
 export interface RolesDeps {
@@ -577,6 +577,42 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
   return { exitCode: 0, stdout: `${table}\n` };
 }
 
+function usageRow(record: SpawnedRecord) {
+  const end = record.quotaAtEnd;
+  const sameReset = end !== null && record.quotaAtSpawn.resetsAt === end.resetsAt;
+  return {
+    thread: record.childThreadId,
+    provider: record.provider,
+    model: record.model,
+    level: record.level,
+    quotaAtSpawn: record.quotaAtSpawn,
+    quotaAtEnd: end,
+    delta: end === null || !sameReset || record.quotaAtSpawn.remainingPercent === null || end.remainingPercent === null
+      ? null
+      : end.remainingPercent - record.quotaAtSpawn.remainingPercent,
+    spawnedAt: new Date(record.createdAtMs).toISOString(),
+    endedAt: record.endedAtMs === null ? null : new Date(record.endedAtMs).toISOString(),
+  };
+}
+
+function cmdUsage(positionals: string[], flags: Map<string, string[]>, roles: RolesDeps): PluginCliResult {
+  const wanted = new Set(positionals);
+  const rows = roles.spawned.list()
+    .filter((record) => wanted.size === 0 || wanted.has(record.childThreadId))
+    .map(usageRow);
+  if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify(rows)}\n` };
+  const table = formatTable(
+    ["thread", "provider", "model", "level", "quotaAtSpawn", "quotaAtEnd", "delta", "spawnedAt", "endedAt"],
+    rows.map((row) => [
+      row.thread, row.provider, row.model, row.level,
+      `${row.quotaAtSpawn.remainingPercent ?? "?"}% / ${row.quotaAtSpawn.resetsAt ?? "?"}`,
+      row.quotaAtEnd === null ? "-" : `${row.quotaAtEnd.remainingPercent ?? "?"}% / ${row.quotaAtEnd.resetsAt ?? "?"}`,
+      row.delta === null ? "" : `${row.delta}%`, row.spawnedAt, row.endedAt ?? "",
+    ]),
+  );
+  return { exitCode: 0, stdout: `${table}\n` };
+}
+
 // --- dispatch ---------------------------------------------------------
 
 async function runRolesCli(
@@ -607,6 +643,8 @@ async function runRolesCli(
         return await cmdImport(positionals, flags, ctx, bb, roles);
       case "quota":
         return await cmdQuota(flags, roles);
+      case "usage":
+        return cmdUsage(positionals, flags, roles);
       default:
         return { exitCode: 1, stderr: `unknown command "${command ?? ""}"; run bb roles --help\n` };
     }
@@ -666,6 +704,11 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
         name: "quota",
         summary: "Show every candidate of every role with live quota and skip status.",
         usage: "bb roles quota [--json]",
+      },
+      {
+        name: "usage",
+        summary: "Show quota measured around spawned children.",
+        usage: "bb roles usage [--json] [thread-id...]",
       },
     ],
     async run(argv, ctx) {

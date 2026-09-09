@@ -33,7 +33,7 @@ import { execFileText } from "./exec";
 import type { QuotaReader } from "./quota";
 import { resolveModel, type Candidate, type ReasoningLevel, type Role } from "./schema";
 import { evaluateCandidates, formatRefusal, type CandidateEvaluation } from "./select";
-import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
+import type { QuotaSnapshot, SpawnedRecord, SpawnedRegistry } from "./spawned";
 import type { RoleStore } from "./store";
 
 /** The subset of `CreateThreadRequest["environment"]` this plugin uses. */
@@ -139,6 +139,32 @@ function describeDeadCandidate(
   return { candidate, level, model: resolveModel(candidate.model, level) };
 }
 
+function snapshotFromEvaluation(evaluation: CandidateEvaluation): QuotaSnapshot {
+  return {
+    remainingPercent:
+      evaluation.remainingFraction === null ? null : Math.round(evaluation.remainingFraction * 100),
+    resetsAt: evaluation.resetsAt,
+  };
+}
+
+function snapshotForQuota(quota: Awaited<ReturnType<QuotaReader["get"]>>, model: string): QuotaSnapshot {
+  const pool = quota.pools.find((candidate) => candidate.matches(model));
+  const windows = pool?.windows ?? [];
+  const window = windows.reduce<typeof windows[number] | null>((least, current) => {
+    if (least === null || (current.remainingFraction !== null &&
+      (least.remainingFraction === null || current.remainingFraction < least.remainingFraction))) {
+      return current;
+    }
+    return least;
+  }, null) ?? windows[0];
+  return {
+    remainingPercent: window?.remainingFraction === null || window === undefined
+      ? null
+      : Math.round(window.remainingFraction * 100),
+    resetsAt: window?.resetsAt ?? null,
+  };
+}
+
 export function createSpawner(deps: SpawnerDeps): Spawner {
   const { bb, store, quota, blocks, spawned, settings } = deps;
   const execFn = deps.execFn ?? execFileText;
@@ -189,6 +215,12 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
       error: null,
       createdAtMs: now,
       updatedAtMs: now,
+      provider: picked.candidate.provider,
+      model,
+      level,
+      quotaAtSpawn: snapshotFromEvaluation(picked),
+      quotaAtEnd: null,
+      endedAtMs: null,
     });
 
     return { child, candidate: picked.candidate, index: picked.index, level };
@@ -351,6 +383,29 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
       bb.log.warn(`turn.failed handling crashed for ${event.threadId}: ${message}`);
       if (dead !== null) await markFailed(dead, message);
     }
+  });
+
+  async function recordCompletion(childThreadId: string): Promise<void> {
+    const record = spawned.get(childThreadId);
+    if (record === null || record.quotaAtEnd !== null) return;
+    try {
+      const quotaAtEnd = snapshotForQuota(await quota.refresh(record.provider, { force: true }), record.model);
+      await spawned.put({
+        ...record,
+        quotaAtEnd,
+        endedAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      });
+    } catch (error) {
+      bb.log.warn(`quota completion read failed for ${childThreadId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  bb.events.on("thread.idle", async (event) => {
+    await recordCompletion(event.thread.id);
+  });
+  bb.events.on("thread.failed", async (event) => {
+    await recordCompletion(event.thread.id);
   });
 
   return { spawnByRole };
