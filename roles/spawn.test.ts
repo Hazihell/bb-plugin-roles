@@ -66,7 +66,11 @@ const builderRole: Role = {
   ],
 };
 
-function setup(opts: { byProvider: Record<string, ProviderQuota>; quota?: QuotaReader }) {
+function setup(opts: {
+  byProvider: Record<string, ProviderQuota>;
+  quota?: QuotaReader;
+  environmentGetImpl?: () => Promise<{ projectId: string }>;
+}) {
   const spawnCalls: unknown[] = [];
   const sendCalls: unknown[] = [];
   const archiveCalls: unknown[] = [];
@@ -95,7 +99,7 @@ function setup(opts: { byProvider: Record<string, ProviderQuota>; quota?: QuotaR
         },
       },
       environments: {
-        get: async () => ({ projectId: "proj_1" }) as never,
+        get: async () => (opts.environmentGetImpl ? opts.environmentGetImpl() : { projectId: "proj_1" }) as never,
       },
     },
   });
@@ -383,6 +387,64 @@ describe("respawn watcher (turn.failed with a blocked rate limit)", () => {
     expect(sent.input[0]!.text).toContain("p2 m2");
 
     expect(spawned.get("th_child_1")?.stage).toBe("exhausted");
+  });
+
+  it("preserves a completion snapshot written while respawning", async () => {
+    let environmentLookupStarted!: () => void;
+    const environmentLookup = new Promise<void>((resolve) => { environmentLookupStarted = resolve; });
+    let releaseEnvironmentLookup!: () => void;
+    const environmentLookupRelease = new Promise<void>((resolve) => { releaseEnvironmentLookup = resolve; });
+    let completionRefresh!: () => void;
+    const completionRefreshStarted = new Promise<void>((resolve) => { completionRefresh = resolve; });
+    const quota: QuotaReader = {
+      get: async () => okQuota(),
+      refresh: async () => {
+        completionRefresh();
+        return { ...okQuota(), pools: [pool([{ label: "5h", remainingFraction: 0.42, resetsAt: null }])] };
+      },
+    };
+    const { harness, spawner, spawned } = setup({
+      byProvider: { p1: okQuota(), p2: okQuota() },
+      quota,
+      environmentGetImpl: async () => {
+        environmentLookupStarted();
+        await environmentLookupRelease;
+        return { projectId: "proj_1" };
+      },
+    });
+
+    await spawner.spawnByRole({ ...baseArgs });
+    const respawn = harness.behavior.emitThreadEvent(
+      "turn.failed",
+      makeTurnFailedEvent({
+        threadId: "th_child_1",
+        rateLimits: {
+          kind: "subscription-window",
+          overageReason: null,
+          overageStatus: null,
+          providerId: "p1",
+          reachedReason: null,
+          status: "blocked",
+          windows: [],
+        },
+      }),
+    );
+    await environmentLookup;
+
+    const completion = harness.behavior.emitThreadEvent("thread.idle", {
+      thread: makeThreadResponse({ id: "th_child_1" }),
+      lastAssistantText: "done",
+    });
+    await completionRefreshStarted;
+    await completion;
+    releaseEnvironmentLookup();
+    await respawn;
+
+    expect(spawned.get("th_child_1")).toMatchObject({
+      stage: "replaced",
+      replacedBy: "th_child_2",
+      quotaAtEnd: { remainingPercent: 42, resetsAt: null },
+    });
   });
 
   it("ignores a blocked event on a thread this plugin never spawned", async () => {

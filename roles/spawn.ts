@@ -271,10 +271,14 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
   async function markFailed(dead: SpawnedRecord, message: string): Promise<void> {
     bb.log.warn(`respawn failed for ${dead.childThreadId}: ${message}`);
     try {
-      await spawned.put({ ...dead, stage: "failed", error: message, updatedAtMs: Date.now() });
-    } catch (putError) {
+      await spawned.update(dead.childThreadId, {
+        stage: "failed",
+        error: message,
+        updatedAtMs: Date.now(),
+      });
+    } catch (updateError) {
       bb.log.warn(
-        `failed to persist "failed" stage for ${dead.childThreadId}: ${putError instanceof Error ? putError.message : String(putError)}`,
+        `failed to persist "failed" stage for ${dead.childThreadId}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,
       );
     }
     await trySendToParent(
@@ -309,10 +313,10 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     } catch (error) {
       if (error instanceof AllCandidatesExhausted) {
         try {
-          await spawned.put({ ...dead, stage: "exhausted", updatedAtMs: Date.now() });
-        } catch (putError) {
+          await spawned.update(dead.childThreadId, { stage: "exhausted", updatedAtMs: Date.now() });
+        } catch (updateError) {
           bb.log.warn(
-            `failed to persist "exhausted" stage for ${dead.childThreadId}: ${putError instanceof Error ? putError.message : String(putError)}`,
+            `failed to persist "exhausted" stage for ${dead.childThreadId}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,
           );
         }
         await trySendToParent(
@@ -330,15 +334,14 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     // A replacement now exists: from here on, failures are logged only —
     // never a second stage change to "failed" or a second parent message.
     try {
-      await spawned.put({
-        ...dead,
+      await spawned.update(dead.childThreadId, {
         stage: "replaced",
         replacedBy: result.child.id,
         updatedAtMs: Date.now(),
       });
-    } catch (putError) {
+    } catch (updateError) {
       bb.log.warn(
-        `failed to persist "replaced" stage for ${dead.childThreadId}: ${putError instanceof Error ? putError.message : String(putError)}`,
+        `failed to persist "replaced" stage for ${dead.childThreadId}: ${updateError instanceof Error ? updateError.message : String(updateError)}`,
       );
     }
 

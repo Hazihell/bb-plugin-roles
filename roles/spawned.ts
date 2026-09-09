@@ -151,16 +151,10 @@ export function createSpawnedRegistry(bb: BbPluginApi): SpawnedRegistry {
   async function claim(childThreadId: string): Promise<boolean> {
     const current = byId.get(childThreadId);
     if (current === undefined || current.stage !== "active") return false;
-    const next: SpawnedRecord = {
-      ...current,
-      stage: "respawning",
-      updatedAtMs: Date.now(),
-    };
     // Synchronous flip before the KV write: a second, concurrent claim()
     // sees "respawning" immediately and returns false, no matter how long
     // the write below takes.
-    byId.set(childThreadId, next);
-    await bb.storage.kv.set(keyFor(childThreadId), next);
+    await update(childThreadId, { stage: "respawning", updatedAtMs: Date.now() });
     return true;
   }
 
