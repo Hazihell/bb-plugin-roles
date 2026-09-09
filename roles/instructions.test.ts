@@ -98,25 +98,17 @@ describe("registerInstructions", () => {
     expect(text).toContain("Follow the plan exactly.");
   });
 
-  it("keeps the whole Cast under an 8000-char instruction, truncating the instruction instead", async () => {
+  it("falls back to the Cast for a spawned child whose role has no instruction", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
     const store = createRoleStore(bb);
-    const longInstruction = `START-OF-INSTRUCTION ${"x".repeat(8000)}`;
     store.create({
       id: "scout",
       description: "Read-only exploration.",
       permissionMode: "full",
       candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
     });
-    store.create({
-      id: "builder",
-      description: "Implementation work.",
-      permissionMode: "full",
-      instruction: longInstruction,
-      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
-    });
     const spawned = createSpawnedRegistry(bb);
-    await spawned.put(spawnedRecord({ childThreadId: "th_child", roleId: "builder" }));
+    await spawned.put(spawnedRecord({ childThreadId: "th_child", roleId: "scout" }));
     await registerInstructions({ bb, store, spawned, settings });
 
     const text = harness.registrations.instructionProvider!({
@@ -124,11 +116,57 @@ describe("registerInstructions", () => {
       projectId: "proj_1",
     });
 
+    expect(text).toContain("## Cast");
+    expect(text).toContain("- **scout** — Read-only exploration.");
+    expect(text).not.toContain("## Role:");
+  });
+
+  it("serves the delegation rule first, truncating the Cast when the rule is long", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
+    const store = createRoleStore(bb);
+    store.create({
+      id: "scout",
+      description: "Read-only exploration.",
+      permissionMode: "full",
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    const spawned = createSpawnedRegistry(bb);
+    const longRule = "R".repeat(4090);
+    const longRuleSettings = { get: async () => ({ delegationRule: longRule }), onChange: () => {} };
+    await registerInstructions({ bb, store, spawned, settings: longRuleSettings });
+
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_parent",
+      projectId: "proj_1",
+    });
+
     expect(text).not.toBeNull();
     expect(text!.length).toBeLessThanOrEqual(4096);
-    expect(text).toContain("## Role: builder");
-    expect(text).toContain("START-OF-INSTRUCTION");
+    expect(text!.startsWith(longRule)).toBe(true);
     expect(text).not.toContain("## Cast");
+  });
+
+  it("uses an edited delegation rule for the next parent contribution", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
+    const store = createRoleStore(bb);
+    const spawned = createSpawnedRegistry(bb);
+    let onChange: ((next: { delegationRule: string }) => void) | undefined;
+    const editableSettings = {
+      get: async () => ({ delegationRule: "old rule" }),
+      onChange: (listener: (next: { delegationRule: string }) => void) => {
+        onChange = listener;
+      },
+    };
+    await registerInstructions({ bb, store, spawned, settings: editableSettings });
+
+    onChange!({ delegationRule: "new rule" });
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_parent",
+      projectId: "proj_1",
+    });
+
+    expect(text).not.toBeNull();
+    expect(text!.startsWith("new rule\n\n")).toBe(true);
   });
 
   it("reflects a role store change without touching the database again", async () => {
