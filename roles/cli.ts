@@ -55,7 +55,7 @@ interface ParsedArgs {
   flags: Map<string, string[]>;
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+function parseArgs(argv: string[], booleanFlags: ReadonlySet<string> = new Set()): ParsedArgs {
   const positionals: string[] = [];
   const flags = new Map<string, string[]>();
   for (let i = 0; i < argv.length; i++) {
@@ -73,7 +73,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     } else {
       name = arg.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (!booleanFlags.has(name) && next !== undefined && !next.startsWith("--")) {
         value = next;
         i++;
       } else {
@@ -578,20 +578,21 @@ async function cmdQuota(flags: Map<string, string[]>, roles: RolesDeps): Promise
 }
 
 function usageRow(record: SpawnedRecord) {
-  const end = record.quotaAtEnd;
-  const sameReset = end !== null && record.quotaAtSpawn.resetsAt === end.resetsAt;
+  const spawn = record.quotaAtSpawn ?? { remainingPercent: null, resetsAt: null };
+  const end = record.quotaAtEnd ?? null;
+  const sameReset = end !== null && spawn.resetsAt === end.resetsAt;
   return {
     thread: record.childThreadId,
-    provider: record.provider,
-    model: record.model,
-    level: record.level,
-    quotaAtSpawn: record.quotaAtSpawn,
+    provider: record.provider ?? "?",
+    model: record.model ?? "?",
+    level: record.level ?? "?",
+    quotaAtSpawn: spawn,
     quotaAtEnd: end,
-    delta: end === null || !sameReset || record.quotaAtSpawn.remainingPercent === null || end.remainingPercent === null
+    delta: end === null || !sameReset || spawn.remainingPercent === null || end.remainingPercent === null
       ? null
-      : end.remainingPercent - record.quotaAtSpawn.remainingPercent,
+      : end.remainingPercent - spawn.remainingPercent,
     spawnedAt: new Date(record.createdAtMs).toISOString(),
-    endedAt: record.endedAtMs === null ? null : new Date(record.endedAtMs).toISOString(),
+    endedAt: record.endedAtMs == null ? null : new Date(record.endedAtMs).toISOString(),
   };
 }
 
@@ -622,7 +623,7 @@ async function runRolesCli(
   roles: RolesDeps,
 ): Promise<PluginCliResult> {
   const [command, ...rest] = argv;
-  const { positionals, flags } = parseArgs(rest);
+  const { positionals, flags } = parseArgs(rest, command === "usage" ? new Set(["json"]) : undefined);
   try {
     switch (command) {
       case "spawn":

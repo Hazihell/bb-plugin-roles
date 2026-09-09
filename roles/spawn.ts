@@ -32,7 +32,7 @@ import type { BlockRegistry } from "./blocks";
 import { execFileText } from "./exec";
 import type { QuotaReader } from "./quota";
 import { resolveModel, type Candidate, type ReasoningLevel, type Role } from "./schema";
-import { evaluateCandidates, formatRefusal, type CandidateEvaluation } from "./select";
+import { evaluateCandidates, formatRefusal, mostConstrainedWindow, type CandidateEvaluation } from "./select";
 import type { QuotaSnapshot, SpawnedRecord, SpawnedRegistry } from "./spawned";
 import type { RoleStore } from "./store";
 
@@ -150,15 +150,9 @@ function snapshotFromEvaluation(evaluation: CandidateEvaluation): QuotaSnapshot 
 function snapshotForQuota(quota: Awaited<ReturnType<QuotaReader["get"]>>, model: string): QuotaSnapshot {
   const pool = quota.pools.find((candidate) => candidate.matches(model));
   const windows = pool?.windows ?? [];
-  const window = windows.reduce<typeof windows[number] | null>((least, current) => {
-    if (least === null || (current.remainingFraction !== null &&
-      (least.remainingFraction === null || current.remainingFraction < least.remainingFraction))) {
-      return current;
-    }
-    return least;
-  }, null) ?? windows[0];
+  const window = mostConstrainedWindow(windows);
   return {
-    remainingPercent: window?.remainingFraction === null || window === undefined
+    remainingPercent: window?.remainingFraction === null || window === null
       ? null
       : Math.round(window.remainingFraction * 100),
     resetsAt: window?.resetsAt ?? null,
@@ -385,19 +379,30 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     }
   });
 
+  const completionRefreshes = new Map<string, Promise<void>>();
+
   async function recordCompletion(childThreadId: string): Promise<void> {
-    const record = spawned.get(childThreadId);
-    if (record === null || record.quotaAtEnd !== null) return;
+    const previous = completionRefreshes.get(childThreadId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(async () => {
+      const record = spawned.get(childThreadId);
+      if (record === null || record.provider === undefined || record.model === undefined) return;
+      try {
+        const quotaAtEnd = snapshotForQuota(await quota.refresh(record.provider, { force: true }), record.model);
+        await spawned.put({
+          ...record,
+          quotaAtEnd,
+          endedAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+        });
+      } catch (error) {
+        bb.log.warn(`quota completion read failed for ${childThreadId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+    completionRefreshes.set(childThreadId, current);
     try {
-      const quotaAtEnd = snapshotForQuota(await quota.refresh(record.provider, { force: true }), record.model);
-      await spawned.put({
-        ...record,
-        quotaAtEnd,
-        endedAtMs: Date.now(),
-        updatedAtMs: Date.now(),
-      });
-    } catch (error) {
-      bb.log.warn(`quota completion read failed for ${childThreadId}: ${error instanceof Error ? error.message : String(error)}`);
+      await current;
+    } finally {
+      if (completionRefreshes.get(childThreadId) === current) completionRefreshes.delete(childThreadId);
     }
   }
 

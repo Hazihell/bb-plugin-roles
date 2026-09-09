@@ -43,6 +43,36 @@ describe("createSpawnedRegistry", () => {
     expect(registry.get("th_missing")).toBeNull();
   });
 
+  it("loads a legacy row without quota fields and keeps its instruction and rate-limit fields", async () => {
+    const { bb } = createFakePluginHost({ pluginId: "roles-test" });
+    const legacy = {
+      childThreadId: "th_legacy",
+      roleId: "builder",
+      candidateIndex: 1,
+      prompt: "legacy instruction",
+      title: "legacy title",
+      parentThreadId: "th_parent",
+      environmentId: "env_legacy",
+      reasoningOverride: "low",
+      stage: "active",
+      replacedBy: null,
+      error: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    };
+    await bb.storage.kv.set("spawned/th_legacy", legacy);
+
+    const registry = createSpawnedRegistry(bb);
+    await registry.load();
+
+    expect(registry.get("th_legacy")).toMatchObject({
+      prompt: "legacy instruction",
+      candidateIndex: 1,
+      stage: "active",
+    });
+    expect(registry.get("th_legacy")).not.toHaveProperty("quotaAtSpawn");
+  });
+
   it("put writes both the in-memory map and KV", async () => {
     const { bb } = createFakePluginHost({ pluginId: "roles-test" });
     const registry = createSpawnedRegistry(bb);

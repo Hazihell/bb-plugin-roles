@@ -34,7 +34,7 @@ export interface EvaluateOptions {
 }
 
 /** The window with the least headroom, for the evaluation's summary fields. */
-function mostConstrainedWindow(windows: PoolWindow[]): PoolWindow | null {
+export function mostConstrainedWindow(windows: readonly PoolWindow[]): PoolWindow | null {
   let result: PoolWindow | null = null;
   for (const window of windows) {
     if (window.remainingFraction === null) continue;

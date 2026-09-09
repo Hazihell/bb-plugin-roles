@@ -66,7 +66,7 @@ const builderRole: Role = {
   ],
 };
 
-function setup(opts: { byProvider: Record<string, ProviderQuota> }) {
+function setup(opts: { byProvider: Record<string, ProviderQuota>; quota?: QuotaReader }) {
   const spawnCalls: unknown[] = [];
   const sendCalls: unknown[] = [];
   const archiveCalls: unknown[] = [];
@@ -102,7 +102,7 @@ function setup(opts: { byProvider: Record<string, ProviderQuota> }) {
 
   const store = createRoleStore(bb);
   store.create(builderRole);
-  const quota = fakeQuotaReader(opts.byProvider);
+  const quota = opts.quota ?? fakeQuotaReader(opts.byProvider);
   const blocks = fakeBlocks();
   const spawned = createSpawnedRegistry(bb);
   const settings = { get: async () => ({ thresholdPercent: 5 }) };
@@ -186,6 +186,45 @@ describe("spawnByRole", () => {
       quotaAtEnd: { remainingPercent: 100, resetsAt: null },
       endedAtMs: expect.any(Number),
     });
+  });
+
+  it("overwrites the end snapshot for sequential idles", async () => {
+    let refreshNumber = 0;
+    const quota: QuotaReader = {
+      get: async () => okQuota(),
+      refresh: async () => {
+        refreshNumber++;
+        return { ...okQuota(), pools: [pool([{ label: "5h", remainingFraction: refreshNumber / 100, resetsAt: null }])] };
+      },
+    };
+    const { harness, spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, quota });
+    await spawner.spawnByRole({ ...baseArgs });
+    const event = { thread: makeThreadResponse({ id: "th_child_1" }), lastAssistantText: "done" };
+    await harness.behavior.emitThreadEvent("thread.idle", event);
+    await harness.behavior.emitThreadEvent("thread.idle", event);
+    expect(spawned.get("th_child_1")?.quotaAtEnd).toEqual({ remainingPercent: 2, resetsAt: null });
+  });
+
+  it("serializes near-simultaneous idle events so the later snapshot wins", async () => {
+    let refreshNumber = 0;
+    let releaseFirst!: () => void;
+    const firstRefresh = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const quota: QuotaReader = {
+      get: async () => okQuota(),
+      refresh: async () => {
+        refreshNumber++;
+        if (refreshNumber === 1) await firstRefresh;
+        return { ...okQuota(), pools: [pool([{ label: "5h", remainingFraction: refreshNumber / 100, resetsAt: null }])] };
+      },
+    };
+    const { harness, spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, quota });
+    await spawner.spawnByRole({ ...baseArgs });
+    const first = harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "th_child_1" }), lastAssistantText: "one" });
+    await Promise.resolve();
+    const second = harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "th_child_1" }), lastAssistantText: "two" });
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(spawned.get("th_child_1")?.quotaAtEnd).toEqual({ remainingPercent: 2, resetsAt: null });
   });
 
   it("a reasoning override changes both the resolved model and the reasoning level", async () => {

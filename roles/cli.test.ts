@@ -567,17 +567,19 @@ describe("bb roles usage", () => {
       endedAtMs: Date.parse("2026-09-09T11:00:00Z"),
     });
 
-    const result = await harness.behavior.runCli(["usage", "th_child_1", "--json"], {});
-    expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual([expect.objectContaining({
-      thread: "th_child_1",
-      provider: "p1",
-      model: "m1-medium",
-      quotaAtSpawn: { remainingPercent: 80, resetsAt: "2026-09-09T12:00:00Z" },
-      quotaAtEnd: { remainingPercent: 95, resetsAt: "2026-09-09T17:00:00Z" },
-      delta: null,
-      spawnedAt: "2026-09-09T10:00:00.000Z",
-      endedAt: "2026-09-09T11:00:00.000Z",
-    })]);
+    for (const argv of [["usage", "th_child_1", "--json"], ["usage", "--json", "th_child_1"]]) {
+      const result = await harness.behavior.runCli(argv, {});
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual([expect.objectContaining({
+        thread: "th_child_1",
+        provider: "p1",
+        model: "m1-medium",
+        quotaAtSpawn: { remainingPercent: 80, resetsAt: "2026-09-09T12:00:00Z" },
+        quotaAtEnd: { remainingPercent: 95, resetsAt: "2026-09-09T17:00:00Z" },
+        delta: null,
+        spawnedAt: "2026-09-09T10:00:00.000Z",
+        endedAt: "2026-09-09T11:00:00.000Z",
+      })]);
+    }
   });
 });
