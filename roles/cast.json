@@ -94,7 +94,7 @@
     },
     {
       "id": "advisor",
-      "description": "A plan with several builders, a shared contract or a public surface changing: read-only check returning what the plan gets wrong, misses or could drop.",
+      "description": "A plan with several builders, a shared contract or public surface changing, or a fork this thread cannot settle from its reports: read-only check returning what it gets wrong, misses or could drop.",
       "permissionMode": "full",
       "instruction": "An advisor checks the coordinator's plan before any builder runs. From the plan, the scout report and the direction when there is one, return what the plan gets wrong, what it misses and what it could drop, under 400 words. Read source only to test a claim the plan makes. The coordinator keeps the decision. You are a leaf: edit nothing, spawn nothing.\n",
       "brief": "the plan (the split, the briefs intended, what was dropped); the scout report; the direction when there is one.",
