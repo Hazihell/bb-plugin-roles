@@ -47,9 +47,10 @@ the spec, the standards paths, the check commands and the axes.
 bb roles spawn --role reviewer --title "review: <what>" --prompt "$(cat <brief-file>)"
 ```
 
-One spawn per reviewer, then end the turn. Keep each report under its own
-`## Standards` and `## Spec`, complete and verbatim, findings unmerged and
-unreranked; with two reviewers each axis keeps its own section.
+One spawn per reviewer, then end the turn. Done when every reviewer the brief
+calls for has reported; keep each report under its own `## Standards` and
+`## Spec`, complete and verbatim, findings unmerged and unreranked, one
+section per axis per reviewer.
 
 ## 4. Close every finding
 
