@@ -10,9 +10,10 @@ the **coordinator**: it reads reports and diffs, never source files, and runs
 no checks, so its context grows only by what children hand back. Every other
 thread is a child with one role, one unit of work, and a fresh context.
 
-The **cast** (the roles, each with its permission mode and its ordered
-candidate providers, models and reasoning levels) is `bb roles list`; this
-skill fixes what each role does and how it is briefed.
+The **cast** (the roles, each with its permission mode, its contract and
+its ordered candidate providers, models and reasoning levels) is `bb roles
+list`; a role's contract reaches the child with the spawn. This skill fixes
+how the coordinator briefs and closes out children.
 
 ## Spawning
 
@@ -22,8 +23,7 @@ child thread spawned with `bb roles spawn --role <id> --title <t> --prompt
 named at the call site: the plugin picks the first candidate with quota and
 handles fallback on its own. Pass `--reasoning <level>` only to override
 every candidate's default level for one spawn — a harder or a trivial unit
-of work. The provider's own agent or subagent tool is not used, even for a
-read-only helper.
+of work.
 
 Every spawn names where the child runs: `--environment <id>` for this
 thread's environment, or `--new-environment worktree --base-branch <ref>`
@@ -39,27 +39,20 @@ right after `bb roles spawn` or `bb thread tell`; never sleep, poll or
 ## Briefing
 
 Every brief carries: the role; the repository, environment and expected head
-commit, which a scout or reviewer confirms before reading code; the unit of
-work; and the cap on what it returns. A brief carries decisions, not
-questions: a question in a builder brief means the coordinator has not
-finished deciding.
+commit; the unit of work; and the cap on what it returns. What a role does on
+arrival (a scout reports facts only, a reviewer never edits) is the role's
+own contract, delivered with the spawn, so the brief carries only what the
+coordinator knows. A brief carries decisions, not questions: a question in a
+builder brief means the coordinator has not finished deciding.
 
-- **Scout** reports facts only: the files each seam touches, which seams share
-  a file, how large each seam is, and the questions it could not answer. No
-  recommendations, no plan. At most a thousand words.
+- **Scout** gets the seams question.
 - **Builder** gets its seam, test points, commit boundary, the scout report,
-  and the documented check commands. While working it runs the focused test
-  file for its seam, every check piped through `tail -40`; at the end it runs
-  the full documented checks once and reports each command with its exit
-  code and one summary line, verbatim, plus the head SHA it committed.
+  and the documented check commands.
 - **Reviewer** gets the two SHAs to compare, the paths of the standards
-  sources, and the check commands to rerun on the head SHA. It reads and
-  reports only: it never edits, spawns or delegates. Under 400 words per axis.
-
+  sources, and the check commands to rerun on the head SHA.
 - **Advisor** gets the coordinator's plan (the split, the briefs it intends
   to send, what it decided not to do), the scout report and the direction
-  when there is one. It returns what the plan gets wrong, what it misses and
-  what it could drop, under 400 words; the coordinator keeps the decision.
+  when there is one.
 
 Read back a child's diff and report, never its transcript.
 
@@ -92,10 +85,9 @@ a fresh reviewer's read of the diff.
 
 Findings belong to the reviewer that raised them. After fixes, `bb thread
 tell` that reviewer the new head SHA, what changed per finding, and each
-unfixed finding with its reason. The reviewer verifies facts on the new SHA:
-`closed`, `open` or `regressed` per finding. The coordinator decides whether
-an open finding blocks hand-back and records why; a reviewer never overrules
-that decision. Start a fresh full review only when a fix materially changes
+unfixed finding with its reason; it answers `closed`, `open` or `regressed`
+per finding. The coordinator decides whether an open finding blocks hand-back
+and records why. Start a fresh full review only when a fix materially changes
 behaviour, architecture, security, data or a public contract.
 
 A usage limit on a spawned child needs no handling here: the roles plugin
