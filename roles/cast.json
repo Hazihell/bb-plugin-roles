@@ -53,22 +53,12 @@
       "id": "designer",
       "description": "Any change a check cannot judge: visual composition, interaction feel, copy, qualitative design.",
       "permissionMode": "full",
-      "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it; a call that changes what the brief asked for goes to your coordinator as a question first.\n",
+      "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it; a call that changes what the brief asked for goes to your coordinator as a question first.",
       "brief": "as builder, plus the direction or reference the taste must honour.",
       "candidates": [
         {
           "provider": "claude-code",
           "model": "claude-opus-5[1m]",
-          "reasoningLevel": "low"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-sonnet-5",
-          "reasoningLevel": "low"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.6-luna",
           "reasoningLevel": "low"
         }
       ]
