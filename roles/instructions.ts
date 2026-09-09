@@ -34,9 +34,12 @@ function buildCastSection(roles: Role[]): string {
   ].join("\n");
 }
 
-function buildRoleSection(role: Role): string | null {
+function buildRoleSection(role: Role, parentThreadId: string | null): string | null {
   if (!role.instruction) return null;
-  return `\n\n## Role: ${role.id}\n${role.instruction}`;
+  const coordinator = parentThreadId === null
+    ? ""
+    : `\n\nYour coordinator is thread ${parentThreadId}. A decision the brief does not settle goes there: \`bb thread tell ${parentThreadId} \"<the fork and your recommendation>\"\`, then end the turn and continue when the answer arrives.`;
+  return `\n\n## Role: ${role.id}\n${role.instruction}${coordinator}`;
 }
 
 export async function registerInstructions(deps: {
@@ -59,7 +62,7 @@ export async function registerInstructions(deps: {
   bb.agents.contributeInstructions(({ threadId }) => {
     const record = spawned.get(threadId);
     const role = record === null ? null : (roles.find((r) => r.id === record.roleId) ?? null);
-    const roleSection = role === null ? null : buildRoleSection(role);
+    const roleSection = role === null ? null : buildRoleSection(role, record?.parentThreadId ?? null);
     if (record !== null) return roleSection === null ? truncate(buildCastSection(roles), MAX_LENGTH) : truncate(roleSection, MAX_LENGTH);
 
     const rule = truncate(delegationRule, MAX_LENGTH);

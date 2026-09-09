@@ -131,9 +131,32 @@ describe("registerInstructions", () => {
       projectId: "proj_1",
     });
 
-    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.");
+    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.\n\nYour coordinator is thread th_parent. A decision the brief does not settle goes there: `bb thread tell th_parent \"<the fork and your recommendation>\"`, then end the turn and continue when the answer arrives.");
     expect(text).toContain("## Role: builder");
     expect(text).toContain("Follow the plan exactly.");
+  });
+
+  it("does not add a coordinator paragraph when a spawned thread has no parent", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-orphan" });
+    const store = createRoleStore(bb);
+    store.create({
+      id: "builder",
+      description: "Implementation work.",
+      permissionMode: "full",
+      instruction: "Follow the plan exactly.",
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    const spawned = createSpawnedRegistry(bb);
+    await spawned.put(spawnedRecord({ childThreadId: "th_orphan", parentThreadId: null }));
+    await registerInstructions({ bb, store, spawned, settings });
+
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_orphan",
+      projectId: "proj_1",
+    });
+
+    expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.");
+    expect(text).not.toContain("Your coordinator is thread");
   });
 
   it("falls back to the Cast for a spawned child whose role has no instruction", async () => {
