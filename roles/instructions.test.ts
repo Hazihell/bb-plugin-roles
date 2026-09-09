@@ -114,7 +114,7 @@ describe("registerInstructions", () => {
     await registerInstructions({ bb, store, spawned, settings });
     const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
     expect(text).toContain("archive it then.");
-    expect(text.length).toBeLessThanOrEqual(4096);
+    expect(text!.length).toBeLessThanOrEqual(4096);
   });
 
   it("keeps the default rule followed by a five-role cast within 4096 characters", async () => {
