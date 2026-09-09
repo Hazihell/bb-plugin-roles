@@ -16,7 +16,6 @@ import { parseDisabledRoles } from "./settings";
 
 const MAX_LENGTH = 4096;
 const DESCRIPTION_MAX = 200;
-export const BRIEF_MAX = 200;
 const SECTION_SEPARATOR = "\n\n";
 const CHILD_LEAF_CONTRACT = "A child is a leaf: it edits only what its role allows, spawns nothing, and leaves the provider's own agent or subagent tool unused.";
 
@@ -27,7 +26,7 @@ function truncate(text: string, max: number): string {
 
 function buildCastSection(roles: Role[]): string {
   const lines = roles.map(
-    (role) => `- **${role.id}** — ${truncate(role.description, DESCRIPTION_MAX)}${role.brief === undefined ? "" : ` Brief: ${truncate(role.brief, BRIEF_MAX)}`}`,
+    (role) => `- **${role.id}** — ${truncate(role.description, DESCRIPTION_MAX)}${role.brief === undefined ? "" : ` Brief: ${role.brief}`}`,
   );
   return [
     "## Cast",

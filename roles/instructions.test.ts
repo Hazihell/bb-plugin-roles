@@ -89,7 +89,7 @@ describe("registerInstructions", () => {
     expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(700);
   });
 
-  it("renders a brief after a truncated description and truncates the brief", async () => {
+  it("renders the whole brief after a truncated description", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-brief" });
     const store = createRoleStore(bb);
     store.create({
@@ -103,7 +103,18 @@ describe("registerInstructions", () => {
     await registerInstructions({ bb, store, spawned, settings });
 
     const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
-    expect(text).toContain(`- **builder** — ${"D".repeat(199)}… Brief: ${"B".repeat(199)}…`);
+    expect(text).toContain(`- **builder** — ${"D".repeat(199)}… Brief: ${"B".repeat(201)}`);
+  });
+
+  it("renders the seeded reviewer brief whole, through its archive step", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-seed-brief" });
+    const store = createRoleStore(bb);
+    for (const role of cast.roles) store.create(roleSchema.parse(role));
+    const spawned = createSpawnedRegistry(bb);
+    await registerInstructions({ bb, store, spawned, settings });
+    const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
+    expect(text).toContain("archive it then.");
+    expect(text.length).toBeLessThanOrEqual(4096);
   });
 
   it("keeps the default rule followed by a five-role cast within 4096 characters", async () => {

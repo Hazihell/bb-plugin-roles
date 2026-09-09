@@ -71,7 +71,9 @@ describe("registerMentions", () => {
     store.update("builder", { brief });
     const resolved = await provider.resolve("builder");
     expect(resolved.context).toContain(`Brief: ${brief}`);
-    expect(resolved.context.indexOf("Brief:")).toBeLessThan(resolved.context.indexOf("Spawn:"));
+    const [description, briefAt, spawnAt] = [resolved.context.indexOf("Role **builder**"), resolved.context.indexOf("Brief:"), resolved.context.indexOf("Spawn:")];
+    expect(description).toBeLessThan(briefAt);
+    expect(briefAt).toBeLessThan(spawnAt);
   });
 
   it("resolve throws for an unknown role id, blocking the send", () => {

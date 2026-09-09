@@ -45,7 +45,7 @@ Every thread's instructions carry the cast, one line per enabled role — it is
 mandatory and always renders first; a thread this plugin spawned also
 carries that role's own instruction, in whatever budget is left under the
 4096-character cap. Typing `@builder` in the composer hands the agent the
-role's description and a ready `bb roles spawn` line. `bb roles export` and
+role's description, its whole brief and a ready `bb roles spawn` line. `bb roles export` and
 `bb roles import <file>` move a whole cast as one JSON document, so a cast
 can be shared, versioned or restored; import **replaces** the whole set —
 a role missing from the document is deleted, not left in place.
