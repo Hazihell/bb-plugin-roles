@@ -29,7 +29,7 @@
       "id": "builder",
       "description": "Any change to files whose outcome a test or check can judge: backend, API, state, tests, layout mechanics.",
       "permissionMode": "full",
-      "instruction": "A builder finishes one unit of work from its brief (the seam, the test points, the commit boundary) inside about 150K tokens of context. While working, run the focused test file for your seam, every check piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed. Where the brief leaves a choice open, take the smaller change and say so in the report. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused; the coordinator delegates.\n",
+      "instruction": "A builder finishes one unit of work from its brief (the seam, the test points, the commit boundary) inside about 150K tokens of context. While working, run the focused test file for your seam, every check piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed. A choice the brief leaves open and the smaller change cannot absorb goes to your coordinator as a question with your recommendation; a trivial one takes the smaller change, said so in the report. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused; the coordinator delegates.\n",
       "brief": "repository, environment and head commit; the seam, test points and commit boundary; the scout report; the documented check commands.",
       "candidates": [
         {
@@ -53,7 +53,7 @@
       "id": "designer",
       "description": "Any change a check cannot judge: visual composition, interaction feel, copy, qualitative design.",
       "permissionMode": "full",
-      "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused.\n",
+      "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it; a call that changes what the brief asked for goes to your coordinator as a question first. You are a leaf: spawn nothing, and leave the provider's own agent or subagent tool unused.\n",
       "brief": "as builder, plus the direction or reference the taste must honour.",
       "candidates": [
         {
