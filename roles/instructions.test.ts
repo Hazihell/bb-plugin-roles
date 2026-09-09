@@ -82,10 +82,12 @@ describe("registerInstructions", () => {
     expect(text).not.toContain("Follow the plan exactly.");
   });
 
-  it("uses the review-only delegation rule", async () => {
-    expect(DEFAULT_DELEGATION_RULE).toBe(
-      '## Delegation\nThis thread builds its own unit in its own worktree and sends every candidate commit to a reviewer child before hand-back. Spawn the reviewer with `bb roles spawn --role reviewer --title "<title>" --prompt "$(cat <brief-file>)"`, briefed with the two SHAs, the spec and the check commands, and read back its report, never its transcript. Fix its findings here, in this worktree, then return them to the same reviewer with the new head SHA by `bb thread tell`; it answers closed, open or regressed, and this thread decides what blocks. End the turn after a spawn or `bb thread tell`; the reviewer notifies on completion and its questions arrive the same way. A reviewer stays until its findings close; archive it then. Other roles in the Cast are for a unit this thread judges too large for one context; a child is briefed from a file with what its cast line asks for and the cap on what it returns, and the provider\'s own agent or subagent tool stays unused.',
-    );
+  it("uses the child-mechanics delegation rule with the review pointer", async () => {
+    expect(DEFAULT_DELEGATION_RULE.startsWith("## Delegation\n")).toBe(true);
+    expect(DEFAULT_DELEGATION_RULE).toContain("bb roles spawn --role <id>");
+    expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or `bb thread tell`");
+    expect(DEFAULT_DELEGATION_RULE).toContain("`/review` runs the review loop");
+    expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(700);
   });
 
   it("renders a brief after a truncated description and truncates the brief", async () => {

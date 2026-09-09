@@ -95,7 +95,9 @@ short. Truncation is marked by "…". The
 Delegation rule is a multiline setting;
 the host renders it, and the settings page can reset it to its default.
 Typing `@<role>` in the composer hands the agent the role's description and a
-filled-in `bb roles spawn` line.
+filled-in `bb roles spawn` line. The plugin also ships the `review` skill
+(`skills/review`): the review loop a preset step or the user invokes as
+`/review`; the rule only points at it.
 
 ## Export / import
 

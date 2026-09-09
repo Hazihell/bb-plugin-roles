@@ -13,7 +13,10 @@
       "icon": "Users"
     },
     "server": "./server.ts",
-    "app": "./app.tsx"
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
   },
   "scripts": {
     "build": "bb plugin build",
