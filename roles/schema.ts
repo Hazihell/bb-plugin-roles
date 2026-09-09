@@ -36,6 +36,7 @@ export const roleSchema = z.object({
   description: z.string().min(1),
   permissionMode: permissionModeSchema.default("full"),
   instruction: z.string().optional(),
+  brief: z.string().optional(),
   candidates: z.array(candidateSchema).min(1),
 });
 export type Role = z.infer<typeof roleSchema>;
@@ -46,7 +47,10 @@ export type Role = z.infer<typeof roleSchema>;
 // `null` as the explicit "clear" signal, which round-trips over JSON. It
 // lives here (not roles/rpc.ts) so the frontend form can validate against it
 // without importing a backend module — see components/roles/RoleFormDialog.tsx.
-export const saveRoleInputSchema = roleSchema.extend({ instruction: z.string().nullable().optional() });
+export const saveRoleInputSchema = roleSchema.extend({
+  instruction: z.string().nullable().optional(),
+  brief: z.string().nullable().optional(),
+});
 export type SaveRoleInput = z.infer<typeof saveRoleInputSchema>;
 
 /** Replaces the literal "{level}" in a candidate's model with its level. */

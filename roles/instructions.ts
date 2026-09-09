@@ -15,6 +15,7 @@ import type { SpawnedRegistry } from "./spawned";
 
 const MAX_LENGTH = 4096;
 const DESCRIPTION_MAX = 200;
+export const BRIEF_MAX = 200;
 
 function truncate(text: string, max: number): string {
   if (max <= 0) return "";
@@ -23,7 +24,7 @@ function truncate(text: string, max: number): string {
 
 function buildCastSection(roles: Role[]): string {
   const lines = roles.map(
-    (role) => `- **${role.id}** — ${truncate(role.description, DESCRIPTION_MAX)}`,
+    (role) => `- **${role.id}** — ${truncate(role.description, DESCRIPTION_MAX)}${role.brief === undefined ? "" : ` Brief: ${truncate(role.brief, BRIEF_MAX)}`}`,
   );
   return [
     "## Cast",

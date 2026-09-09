@@ -74,6 +74,44 @@ describe("registerInstructions", () => {
     expect(text).not.toContain("Follow the plan exactly.");
   });
 
+  it("renders a brief after a truncated description and truncates the brief", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-brief" });
+    const store = createRoleStore(bb);
+    store.create({
+      id: "builder",
+      description: "D".repeat(201),
+      brief: "B".repeat(201),
+      permissionMode: "full",
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    const spawned = createSpawnedRegistry(bb);
+    await registerInstructions({ bb, store, spawned, settings });
+
+    const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
+    expect(text).toContain(`- **builder** — ${"D".repeat(199)}… Brief: ${"B".repeat(199)}…`);
+  });
+
+  it("keeps the default rule followed by a five-role cast within 4096 characters", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-brief-budget" });
+    const store = createRoleStore(bb);
+    for (const id of ["scout", "builder", "designer", "reviewer", "advisor"] as const) {
+      store.create({
+        id,
+        description: "D".repeat(200),
+        brief: "B".repeat(200),
+        permissionMode: "full",
+        candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+      });
+    }
+    const spawned = createSpawnedRegistry(bb);
+    await registerInstructions({ bb, store, spawned, settings });
+
+    const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
+    expect(text!.length).toBeLessThanOrEqual(4096);
+    expect(text).toContain(DEFAULT_DELEGATION_RULE);
+    expect(text).toContain("- **advisor**");
+  });
+
   it("additionally carries the role's own instruction for a spawned thread", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test" });
     const store = createRoleStore(bb);

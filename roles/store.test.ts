@@ -42,6 +42,19 @@ describe("createRoleStore", () => {
     expect(targetStore.list()).toEqual(sourceStore.list());
   });
 
+  it("round-trips a role brief through storage and export/import", () => {
+    const source = createFakePluginHost({ pluginId: "roles-test-brief-source" });
+    const sourceStore = createRoleStore(source.bb);
+    sourceStore.create({ id: "builder", description: "Builds.", brief: "One unit.", permissionMode: "full", candidates: [{ provider: "p", model: "m", reasoningLevel: "medium" }] });
+    const exported = sourceStore.exportAll();
+    expect(exported.roles[0]?.brief).toBe("One unit.");
+
+    const target = createFakePluginHost({ pluginId: "roles-test-brief-target" });
+    const targetStore = createRoleStore(target.bb);
+    targetStore.importAll(exported);
+    expect(targetStore.get("builder")?.brief).toBe("One unit.");
+  });
+
   it("importAll upserts a role present in the document and updates its fields", () => {
     const { bb } = createFakePluginHost({ pluginId: "roles-test-c" });
     const store = createRoleStore(bb);

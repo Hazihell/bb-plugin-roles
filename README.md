@@ -8,15 +8,14 @@ First-class agent roles with quota-aware fallback:
   (`roles/select.ts`), the spawner and its respawn watcher (`roles/spawn.ts`),
   contributed instructions (`roles/instructions.ts`), an `@` mention provider
   (`roles/mention.ts`), and the `bb roles` CLI (`roles/cli.ts`).
-- `skills/delegation/SKILL.md` — how to spawn, brief and read back children
-  by role; imported into every agent thread automatically.
 - `PLUGIN_OVERVIEW.md` — the store listing text: a longer version of
   `bb.description` shown on the plugin detail page.
 
 ## What a role is
 
 A role has an `id`, a trigger `description`, a `permissionMode` (default
-`full`), an optional `instruction`, and an ordered list of `candidates` —
+`full`), an optional `instruction`, an optional `brief` for coordinators to
+use when spawning this role, and an ordered list of `candidates` —
 each a provider id, a model (which may contain `{level}`, resolved at spawn
 time), and a default reasoning level. The plugin seeds the committed cast in
 [`roles/cast.json`](roles/cast.json) once, ever,
@@ -34,9 +33,11 @@ bb roles show <id> [--json]
 bb roles create --id <slug> --description <text>
   --candidate <provider>:<model>[:<level>] [--candidate ...]
   [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>]
+  [--brief <text> | --brief-file <path>]
   [--machine <id-or-name>]
 bb roles update <id> [--description <text>] [--permission-mode <mode>]
   [--instruction <text> | --instruction-file <path> | --clear-instruction]
+  [--brief <text> | --brief-file <path> | --clear-brief]
   [--candidate <provider>:<model>[:<level>] ...] [--machine <id-or-name>]
 bb roles delete <id> [--json]
 bb roles export [--json]

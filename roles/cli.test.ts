@@ -217,6 +217,18 @@ describe("bb roles list / show", () => {
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toContain("nope");
   });
+
+  it("shows, creates, updates, and clears a role brief", async () => {
+    const { harness, store } = setup();
+    const created = await harness.behavior.runCli([
+      "create", "--id", "builder", "--description", "Builds.", "--brief", "One unit.", "--candidate", "p1:m1",
+    ], {});
+    expect(created.exitCode).toBe(0);
+    expect(store.get("builder")?.brief).toBe("One unit.");
+    expect((await harness.behavior.runCli(["show", "builder"], {})).stdout).toContain("brief: One unit.");
+    await harness.behavior.runCli(["update", "builder", "--clear-brief"], {});
+    expect(store.get("builder")?.brief).toBeUndefined();
+  });
 });
 
 describe("bb roles create / update / delete", () => {

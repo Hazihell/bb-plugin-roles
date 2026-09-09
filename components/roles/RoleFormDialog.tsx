@@ -74,6 +74,7 @@ function RoleForm({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(initial?.permissionMode ?? "full");
   const [instruction, setInstruction] = useState(initial?.instruction ?? "");
+  const [brief, setBrief] = useState(initial?.brief ?? "");
   const [candidates, setCandidates] = useState<Candidate[]>(initial?.candidates ?? [EMPTY_CANDIDATE]);
   const [unknownIndices, setUnknownIndices] = useState<ReadonlySet<number>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -174,12 +175,14 @@ function RoleForm({
     // `undefined` doesn't survive JSON.stringify, so a blank field has to
     // send `null` rather than simply omitting the key (see roles/rpc.ts).
     const trimmedInstruction = instruction.trim();
+    const trimmedBrief = brief.trim();
     const roleInput = {
       id: id.trim(),
       description: description.trim(),
       permissionMode,
       candidates,
       instruction: trimmedInstruction === "" ? null : trimmedInstruction,
+      brief: trimmedBrief === "" ? null : trimmedBrief,
     };
 
     const parsed = saveRoleInputSchema.safeParse(roleInput);
@@ -250,16 +253,30 @@ function RoleForm({
         </select>
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="role-instruction" className="text-sm font-medium">
-          Instruction
-        </label>
-        <textarea
-          id="role-instruction"
-          className={cn(FIELD_CLASS, "min-h-20 resize-y")}
-          value={instruction}
-          onChange={(event) => setInstruction(event.target.value)}
-        />
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <label htmlFor="role-instruction" className="text-sm font-medium">
+            Instruction
+          </label>
+          <textarea
+            id="role-instruction"
+            className={cn(FIELD_CLASS, "min-h-20 resize-y")}
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="role-brief" className="text-sm font-medium">
+            Brief
+          </label>
+          <textarea
+            id="role-brief"
+            className={cn(FIELD_CLASS, "min-h-20 resize-y")}
+            value={brief}
+            onChange={(event) => setBrief(event.target.value)}
+          />
+        </div>
       </div>
 
       <div className="space-y-2">

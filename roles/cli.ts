@@ -230,6 +230,41 @@ async function resolveInstructionPatch(
   return { set: false, value: undefined };
 }
 
+async function resolveBriefFlag(
+  flags: Map<string, string[]>,
+  bb: BbPluginApi,
+  ctx: PluginCliContext,
+): Promise<string | undefined> {
+  const inline = flagValue(flags, "brief");
+  const filePath = flagValue(flags, "brief-file");
+  if (inline !== undefined && filePath !== undefined) {
+    throw usageError("pass only one of --brief or --brief-file");
+  }
+  if (inline !== undefined) return inline;
+  if (filePath !== undefined) return readInvokingFile(bb, ctx, filePath, flagValue(flags, "machine"));
+  return undefined;
+}
+
+async function resolveBriefPatch(
+  flags: Map<string, string[]>,
+  bb: BbPluginApi,
+  ctx: PluginCliContext,
+): Promise<{ set: boolean; value: string | undefined }> {
+  const clear = hasFlag(flags, "clear-brief");
+  const inline = flagValue(flags, "brief");
+  const filePath = flagValue(flags, "brief-file");
+  const chosen = [clear, inline !== undefined, filePath !== undefined].filter(Boolean).length;
+  if (chosen > 1) {
+    throw usageError("pass only one of --brief, --brief-file or --clear-brief");
+  }
+  if (clear) return { set: true, value: undefined };
+  if (inline !== undefined) return { set: true, value: inline };
+  if (filePath !== undefined) {
+    return { set: true, value: await readInvokingFile(bb, ctx, filePath, flagValue(flags, "machine")) };
+  }
+  return { set: false, value: undefined };
+}
+
 // --- spawn ----------------------------------------------------------------
 
 function buildEnvironment(
@@ -346,6 +381,7 @@ function cmdShow(positionals: string[], flags: Map<string, string[]>, roles: Rol
     `description: ${role.description}`,
     `permissionMode: ${role.permissionMode}`,
     `instruction: ${role.instruction ?? "-"}`,
+    `brief: ${role.brief ?? "-"}`,
     "candidates:",
     ...role.candidates.map(
       (candidate, index) =>
@@ -369,12 +405,14 @@ async function cmdCreate(
   const candidateArgs = flagValues(flags, "candidate");
   if (candidateArgs.length === 0) throw usageError("--candidate is required (repeatable)");
   const instruction = await resolveInstructionFlag(flags, bb, ctx);
+  const brief = await resolveBriefFlag(flags, bb, ctx);
 
   const role = roleSchema.parse({
     id,
     description,
     permissionMode: permissionModeRaw === undefined ? undefined : parsePermissionMode(permissionModeRaw),
     instruction,
+    brief,
     candidates: candidateArgs.map(parseCandidateArg),
   } satisfies Partial<Role>);
   const created = roles.store.create(role);
@@ -403,6 +441,8 @@ async function cmdUpdate(
   }
   const instructionPatch = await resolveInstructionPatch(flags, bb, ctx);
   if (instructionPatch.set) patch.instruction = instructionPatch.value;
+  const briefPatch = await resolveBriefPatch(flags, bb, ctx);
+  if (briefPatch.set) patch.brief = briefPatch.value;
   const candidateArgs = flagValues(flags, "candidate");
   if (candidateArgs.length > 0) patch.candidates = candidateArgs.map(parseCandidateArg);
 
@@ -607,13 +647,13 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
         name: "create",
         summary: "Create a role.",
         usage:
-          'bb roles create --id <slug> --description <text> --candidate <provider>:<model>[:<level>] [--candidate ...] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>] [--machine <id-or-name>]',
+          'bb roles create --id <slug> --description <text> --candidate <provider>:<model>[:<level>] [--candidate ...] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path>] [--brief <text> | --brief-file <path>] [--machine <id-or-name>]',
       },
       {
         name: "update",
         summary: "Update a role; --candidate replaces the whole list.",
         usage:
-          'bb roles update <id> [--description <text>] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path> | --clear-instruction] [--candidate <provider>:<model>[:<level>] ...] [--machine <id-or-name>]',
+          'bb roles update <id> [--description <text>] [--permission-mode <mode>] [--instruction <text> | --instruction-file <path> | --clear-instruction] [--brief <text> | --brief-file <path> | --clear-brief] [--candidate <provider>:<model>[:<level>] ...] [--machine <id-or-name>]',
       },
       { name: "delete", summary: "Delete a role.", usage: "bb roles delete <id> [--json]" },
       { name: "export", summary: "Export every role as one JSON document.", usage: "bb roles export [--json]" },

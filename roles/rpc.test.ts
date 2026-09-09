@@ -56,6 +56,20 @@ describe("saveRole", () => {
     expect(store.get("builder")).not.toBeNull();
   });
 
+  it("saves and clears a role brief", async () => {
+    const { harness, store } = setup();
+    await callRpc(harness, "saveRole", {
+      role: { id: "builder", description: "Builds.", brief: "One unit.", permissionMode: "full", candidates: [builderCandidate] },
+      mode: "create",
+    });
+    expect(store.get("builder")?.brief).toBe("One unit.");
+    await callRpc(harness, "saveRole", {
+      role: { id: "builder", description: "Builds.", brief: null, permissionMode: "full", candidates: [builderCandidate] },
+      mode: "update",
+    });
+    expect(store.get("builder")?.brief).toBeUndefined();
+  });
+
   it("updates a role through the store, including a candidate reorder", async () => {
     const { harness, store } = setup();
     store.create({

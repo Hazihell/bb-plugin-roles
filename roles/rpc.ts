@@ -62,15 +62,17 @@ export interface RoleRpcDeps {
 }
 
 /**
- * Forcing an update's `instruction` key to `undefined` (see `saveRole` below)
+ * Forcing an update's optional keys to `undefined` (see `saveRole` below)
  * makes `roleSchema.parse` keep that key on the returned record, an explicit
  * `undefined` value the RPC wire can't carry. Drop the key entirely when
  * absent, matching how a role with no instruction is stored and returned
  * everywhere else.
  */
 function sanitizeRole(role: Role): Role {
-  if (role.instruction !== undefined) return role;
-  const { instruction: _unused, ...rest } = role;
+  if (role.instruction !== undefined && role.brief !== undefined) return role;
+  const { instruction: _instruction, brief: _brief, ...rest } = role;
+  if (role.instruction !== undefined) return { ...rest, instruction: role.instruction };
+  if (role.brief !== undefined) return { ...rest, brief: role.brief };
   return rest;
 }
 
@@ -97,6 +99,7 @@ export function registerRoleRpc(bb: BbPluginApi, deps: RoleRpcDeps): void {
         description: role.description,
         permissionMode: role.permissionMode,
         instruction: role.instruction ?? undefined,
+        brief: role.brief ?? undefined,
         candidates: role.candidates,
       };
       const saved =
@@ -106,6 +109,7 @@ export function registerRoleRpc(bb: BbPluginApi, deps: RoleRpcDeps): void {
               description: record.description,
               permissionMode: record.permissionMode,
               instruction: record.instruction,
+              brief: record.brief,
               candidates: record.candidates,
             });
       const results = await findMissingModels(bb, saved.candidates);
