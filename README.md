@@ -87,10 +87,11 @@ An unspawned thread receives the configured Delegation rule followed by a Cast
 section, one line per role, plus a `bb roles spawn` pointer. A thread this
 plugin spawned with a role instruction receives its role section (`## Role: <id>`
 and its `instruction`), followed by a paragraph naming its coordinator and
-explaining how to ask it questions; if that role has no instruction, it receives
-the Cast as a fallback. For a parent thread, the delegation rule is rendered
-first and the Cast takes what is left of the 4096-character budget, so a very long rule
-squeezes the Cast; keep the rule short. Truncation is marked by "…". The
+explaining how to ask it questions when it has a coordinator; if that role has
+no instruction, it receives the Cast as a fallback. For a parent thread, the
+delegation rule is rendered first and the Cast takes what is left of the
+4096-character budget, so a very long rule squeezes the Cast; keep the rule
+short. Truncation is marked by "…". The
 Delegation rule is a multiline setting;
 the host renders it, and the settings page can reset it to its default.
 Typing `@<role>` in the composer hands the agent the role's description and a

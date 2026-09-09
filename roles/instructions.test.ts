@@ -1,6 +1,8 @@
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { describe, expect, it } from "vitest";
+import cast from "./cast.json" with { type: "json" };
 import { registerInstructions } from "./instructions";
+import { roleSchema } from "./schema";
 import type { SpawnedRecord } from "./spawned";
 import { createSpawnedRegistry } from "./spawned";
 import { createRoleStore } from "./store";
@@ -134,6 +136,48 @@ describe("registerInstructions", () => {
     expect(text).toBe("\n\n## Role: builder\nFollow the plan exactly.\n\nYour coordinator is thread th_parent. A decision the brief does not settle goes there: `bb thread tell th_parent \"<the fork and your recommendation>\"`, then end the turn and continue when the answer arrives.");
     expect(text).toContain("## Role: builder");
     expect(text).toContain("Follow the plan exactly.");
+  });
+
+  it("renders the reviewer instruction from the cast within the budget", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-reviewer" });
+    const store = createRoleStore(bb);
+    const reviewer = roleSchema.parse(cast.roles.find((role) => role.id === "reviewer"));
+    store.create(reviewer);
+    const spawned = createSpawnedRegistry(bb);
+    await spawned.put(spawnedRecord({ childThreadId: "th_reviewer", roleId: "reviewer" }));
+    await registerInstructions({ bb, store, spawned, settings });
+
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_reviewer",
+      projectId: "proj_1",
+    });
+
+    expect(text!.length).toBeLessThan(4096);
+    expect(text).toContain(reviewer.instruction);
+    expect(text).not.toContain("…");
+  });
+
+  it("keeps the coordinator paragraph when a role instruction is too long", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-budget" });
+    const store = createRoleStore(bb);
+    store.create({
+      id: "builder",
+      description: "Implementation work.",
+      permissionMode: "full",
+      instruction: "I".repeat(5000),
+      candidates: [{ provider: "codex", model: "m", reasoningLevel: "low" }],
+    });
+    const spawned = createSpawnedRegistry(bb);
+    await spawned.put(spawnedRecord({ childThreadId: "th_builder", roleId: "builder" }));
+    await registerInstructions({ bb, store, spawned, settings });
+
+    const text = harness.registrations.instructionProvider!({
+      threadId: "th_builder",
+      projectId: "proj_1",
+    });
+
+    expect(text).toHaveLength(4096);
+    expect(text).toMatch(/Your coordinator is thread th_parent\..*answer arrives\.$/);
   });
 
   it("does not add a coordinator paragraph when a spawned thread has no parent", async () => {
