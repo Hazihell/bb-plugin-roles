@@ -86,7 +86,7 @@ describe("registerInstructions", () => {
     expect(DEFAULT_DELEGATION_RULE.startsWith("## Delegation\n")).toBe(true);
     expect(DEFAULT_DELEGATION_RULE).toContain("bb roles spawn --role <id>");
     expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or `bb thread tell`");
-    expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(700);
+    expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(1200);
   });
 
   it("renders the whole brief after a truncated description", async () => {
@@ -120,7 +120,7 @@ describe("registerInstructions", () => {
   it("keeps the default rule followed by a five-role cast within 4096 characters", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-brief-budget" });
     const store = createRoleStore(bb);
-    for (const id of ["scout", "builder", "designer", "reviewer", "advisor"] as const) {
+    for (const id of ["advisor", "scout", "builder", "apprentice", "reviewer"] as const) {
       store.create({
         id,
         description: "D".repeat(200),

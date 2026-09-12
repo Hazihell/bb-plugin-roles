@@ -10,11 +10,11 @@ describe("createRoleStore", () => {
     store.seedOnce();
     expect(store.list()).toHaveLength(5);
     expect(store.list().map((role) => role.id)).toEqual([
+      "advisor",
       "scout",
       "builder",
-      "designer",
+      "apprentice",
       "reviewer",
-      "advisor",
     ]);
 
     // Calling it again is a no-op: still 5, unchanged.

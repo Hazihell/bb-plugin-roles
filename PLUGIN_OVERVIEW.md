@@ -9,8 +9,8 @@ A role is a named record: a trigger description, a permission mode, an
 optional instruction, an optional coordinator brief, and an ordered list of
 model candidates to try in turn — each a provider, a model (which may contain `{level}`, resolved at
 spawn time) and a default reasoning level. The plugin seeds five roles once,
-on first load, copied from the common custom-instructions cast: **scout**,
-**builder**, **designer**, **reviewer**, **advisor**. Seeding never repeats,
+on first load, copied from the common custom-instructions cast: **advisor**,
+**scout**, **builder**, **apprentice**, **reviewer**. Seeding never repeats,
 even across a full delete, so edits always stick.
 
 ## Spawning by role

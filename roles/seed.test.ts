@@ -4,28 +4,30 @@ import { seedRoles } from "./seed";
 // The expected table, straight from roles/cast.json:
 // provider, model, level, in order, per role.
 const EXPECTED: Record<string, [provider: string, model: string, level: string][]> = {
+  advisor: [
+    ["claude-code", "claude-fable-5-1", "high"],
+    ["claude-code", "claude-opus-5[1m]", "high"],
+    ["acp-antigravity", "gemini-3.8-flash-{level}", "high"],
+  ],
   scout: [
-    ["codex", "gpt-5.6-luna", "low"],
-    ["acp-antigravity", "gemini-3.8-flash-medium", "medium"],
+    ["acp-antigravity", "gemini-3.8-flash-{level}", "low"],
+    ["acp-antigravity", "gemini-3.7-flash-{level}", "medium"],
     ["claude-code", "claude-sonnet-5", "low"],
   ],
   builder: [
-    ["acp-antigravity", "gemini-3.8-flash-{level}", "medium"],
-    ["codex", "gpt-5.6-luna", "medium"],
+    ["claude-code", "claude-opus-5[1m]", "medium"],
+    ["acp-antigravity", "gemini-3.8-flash-{level}", "high"],
     ["claude-code", "claude-sonnet-5", "medium"],
   ],
-  designer: [
-    ["claude-code", "claude-opus-5[1m]", "low"],
-    ["claude-code", "claude-sonnet-5", "low"],
-    ["codex", "gpt-5.6-luna", "low"],
+  apprentice: [
+    ["acp-antigravity", "gemini-3.8-flash-{level}", "medium"],
+    ["acp-antigravity", "gemini-3.7-flash-{level}", "medium"],
+    ["claude-code", "claude-sonnet-5", "medium"],
   ],
   reviewer: [
-    ["codex", "gpt-5.6-sol", "medium"],
     ["claude-code", "claude-opus-5[1m]", "medium"],
-  ],
-  advisor: [
-    ["codex", "gpt-6-astra", "medium"],
-    ["claude-code", "claude-opus-5[1m]", "medium"],
+    ["acp-antigravity", "gemini-3.8-flash-{level}", "high"],
+    ["claude-code", "claude-fable-5-1", "medium"],
   ],
 };
 

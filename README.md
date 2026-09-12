@@ -19,8 +19,8 @@ use when spawning this role, and an ordered list of `candidates` —
 each a provider id, a model (which may contain `{level}`, resolved at spawn
 time), and a default reasoning level. The plugin seeds the committed cast in
 [`roles/cast.json`](roles/cast.json) once, ever,
-on first load — **scout**, **builder**, **designer**, **reviewer**,
-**advisor** — and never reseeds, even across a full delete.
+on first load — **advisor**, **scout**, **builder**, **apprentice**,
+**reviewer** — and never reseeds, even across a full delete.
 
 ## `bb roles`
 

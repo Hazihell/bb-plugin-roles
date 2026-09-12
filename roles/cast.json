@@ -2,113 +2,63 @@
   "version": 1,
   "roles": [
     {
+      "id": "advisor",
+      "description": "A decision you are not sure of: an architecture, a complex plan, a split, a fork. Read-only; returns what it gets wrong, misses or could drop; the decision stays yours.",
+      "permissionMode": "full",
+      "instruction": "An advisor answers the coordinator's question: a plan, a design, a fork, a doubt. Return what it gets wrong, what it misses, what it could drop, and where you would go differently, under 400 words. Read source only to test a claim. The coordinator keeps the decision. Edit nothing.\n",
+      "brief": "the question; the plan or options weighed; the direction and the scout report when there is one.",
+      "candidates": [
+        { "provider": "claude-code", "model": "claude-fable-5-1", "reasoningLevel": "high" },
+        { "provider": "claude-code", "model": "claude-opus-5[1m]", "reasoningLevel": "high" },
+        { "provider": "acp-antigravity", "model": "gemini-3.8-flash-{level}", "reasoningLevel": "high" }
+      ]
+    },
+    {
       "id": "scout",
-      "description": "Facts before a plan: which files a change touches, what shares them, how big each seam is. Read-only; report of at most a thousand words.",
+      "description": "Facts before a plan when reading them yourself would leave the smart zone: which files a change touches, what shares them, how big each seam is. Read-only, facts only, under a thousand words.",
       "permissionMode": "full",
       "instruction": "A scout does read-only exploration ending in a report of at most a thousand words. Confirm the repository, environment and head commit the brief names before reading anything. Report facts only: the files each seam touches, which seams share a file, how large each seam is, and the questions you could not answer. Recommendations and plans are the coordinator's; supply what it needs to make them. Edit nothing, commit nothing. The report is your final message.\n",
       "brief": "repository, environment and head commit; the seams question.",
       "candidates": [
-        {
-          "provider": "codex",
-          "model": "gpt-5.6-luna",
-          "reasoningLevel": "low"
-        },
-        {
-          "provider": "acp-antigravity",
-          "model": "gemini-3.8-flash-medium",
-          "reasoningLevel": "medium"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-sonnet-5",
-          "reasoningLevel": "low"
-        }
+        { "provider": "acp-antigravity", "model": "gemini-3.8-flash-{level}", "reasoningLevel": "low" },
+        { "provider": "acp-antigravity", "model": "gemini-3.7-flash-{level}", "reasoningLevel": "medium" },
+        { "provider": "claude-code", "model": "claude-sonnet-5", "reasoningLevel": "low" }
       ]
     },
     {
       "id": "builder",
-      "description": "Any change to files whose outcome a test or check can judge: backend, API, state, tests, layout mechanics.",
+      "description": "One chunk of a build sized to its own smart zone: decides the calls the brief leaves open from its direction, reports each, commits at the boundary named.",
       "permissionMode": "full",
-      "instruction": "A builder finishes one unit of work from its brief (the seam, the test points, the commit boundary) aiming to stay inside about 150K tokens of context; that is a sizing goal for the coordinator's briefs, not a gate, so never compact or restart to meet it. While working, run the focused test file for your seam, every check piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed. A choice the brief leaves open and the smaller change cannot absorb goes to your coordinator as a question with your recommendation; a trivial one takes the smaller change, said so in the report.\n",
-      "brief": "repository, environment and head commit; the seam, test points and commit boundary; the scout report; the documented check commands.",
+      "instruction": "A builder finishes one chunk of work from its brief: the seam, the test points, the commit boundary, the direction. A choice the brief leaves open is yours: decide it from the direction, take it, and report it with its reason so the coordinator can overrule it; only a choice that changes what the brief asked for goes to the coordinator as a question first, with your recommendation. While working, run the focused test file for your seam, every check piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed.\n",
+      "brief": "repository, environment and head commit; the seam, test points and commit boundary; the direction or reference to honour; the documented check commands; the scout report when there is one.",
       "candidates": [
-        {
-          "provider": "acp-antigravity",
-          "model": "gemini-3.8-flash-{level}",
-          "reasoningLevel": "medium"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.6-luna",
-          "reasoningLevel": "medium"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-sonnet-5",
-          "reasoningLevel": "medium"
-        }
+        { "provider": "claude-code", "model": "claude-opus-5[1m]", "reasoningLevel": "medium" },
+        { "provider": "acp-antigravity", "model": "gemini-3.8-flash-{level}", "reasoningLevel": "high" },
+        { "provider": "claude-code", "model": "claude-sonnet-5", "reasoningLevel": "medium" }
       ]
     },
     {
-      "id": "designer",
-      "description": "Any change a check cannot judge: visual composition, interaction feel, copy, qualitative design.",
+      "id": "apprentice",
+      "description": "One chunk of heavy, fully specified work: does exactly what the brief says, asks at any gap, decides nothing. Write its brief so it never has to ask.",
       "permissionMode": "full",
-      "instruction": "A designer finishes one unit of work needing taste (visual composition, interaction judgement, copy, qualitative design) from its brief, with a builder's discipline: focused checks piped through `tail -40` while working, the full documented checks once at the end, each command reported with its exit code and one summary line verbatim, plus the head SHA you committed. Report every judgement call you made and why, so the coordinator can overrule it; a call that changes what the brief asked for goes to your coordinator as a question first.",
-      "brief": "as builder, plus the direction or reference the taste must honour.",
+      "instruction": "An apprentice does exactly what its brief says and nothing beyond it. Any gap stops the work: an open choice, a file not where the brief says, a check failing in a way the brief did not foresee. Tell the coordinator the gap plainly, end the turn, and continue when the answer arrives. While working, run the checks the brief names, piped through `tail -40`. Commit at the boundary the brief names. At the end, run the full documented checks once and report each command with its exit code and one summary line, verbatim, plus the head SHA you committed.\n",
+      "brief": "as builder, with every file, change and expected result spelled out and no open choice.",
       "candidates": [
-        {
-          "provider": "claude-code",
-          "model": "claude-opus-5[1m]",
-          "reasoningLevel": "low"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-sonnet-5",
-          "reasoningLevel": "low"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.6-luna",
-          "reasoningLevel": "low"
-        }
+        { "provider": "acp-antigravity", "model": "gemini-3.8-flash-{level}", "reasoningLevel": "medium" },
+        { "provider": "acp-antigravity", "model": "gemini-3.7-flash-{level}", "reasoningLevel": "medium" },
+        { "provider": "claude-code", "model": "claude-sonnet-5", "reasoningLevel": "medium" }
       ]
     },
     {
       "id": "reviewer",
-      "description": "Every candidate commit before hand-back: read-only review of the diff between two SHAs; reports findings, never edits.",
+      "description": "Before hand-back, when the diff is more than a one-hunk fix or touches a shared contract: read-only review between two SHAs along Standards and Spec; reports findings, never edits.",
       "permissionMode": "full",
       "instruction": "A reviewer reads the diff between the two SHAs its brief names, on the repository and environment it names, confirmed before reading. Rerun the check commands the brief names on the head SHA; a result that differs from the builder's report is a finding. Report findings only; edit nothing, commit nothing.\n\nTwo axes, each under 400 words, each a section whose body is the findings, `No findings.` or `Not run: <reason>`; report the axes the brief names, both by default.\n\n`## Standards`: does the diff conform to the repo's documented standards? Per file or hunk: (a) every place the diff violates a documented standard, citing the file and the rule; (b) any baseline smell below, named with the hunk quoted. Documented breaches can be hard; baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces.\n\n`## Spec`: does the diff faithfully implement what was asked? (a) requirements asked for that are missing or partial; (b) behaviour not asked for; (c) requirements that look implemented but wrong. Quote the spec line for each.\n\nFindings stay yours until every one is closed: when the coordinator sends a new head SHA with what changed per finding, verify each on that SHA and report `closed`, `open` or `regressed`. The coordinator decides whether an open finding blocks hand-back; that decision stands.\n\nSmell baseline (Fowler), matched against the diff as what it is → how to fix:\n- Mysterious Name: a name that hides what it does or holds → rename; if no honest name comes, the design is murky.\n- Duplicated Code: the same logic shape in more than one hunk or file → extract the shape, call it from both.\n- Feature Envy: a method reaching into another object's data more than its own → move it onto the data it envies.\n- Data Clumps: the same few fields or params travelling together → one type, pass that.\n- Primitive Obsession: a primitive standing in for a domain concept → give the concept its own small type.\n- Repeated Switches: the same switch or if-cascade on the same type recurring → polymorphism, or one shared map.\n- Shotgun Surgery: one logical change scattered across many files → gather what changes together.\n- Divergent Change: one module edited for several unrelated reasons → split so each changes for one reason.\n- Speculative Generality: abstraction or hooks for needs the spec lacks → delete; inline until a real need shows.\n- Message Chains: long a.b().c().d() navigation → hide the walk behind one method on the first object.\n- Middle Man: a unit that mostly delegates onward → cut it, call the target direct.\n- Refused Bequest: an implementer ignoring most of what it inherits → composition over inheritance.\n",
-      "brief": "the two SHAs pinned first (`git merge-base <fixed-point> HEAD` and `git rev-parse HEAD`) and their commit list; the spec and direction pasted in; standards source paths found by sweeping the repo root, docs/, .github/ and the touched directories; the documented check commands; the axes, both by default, plus a second spec-only reviewer when the diff changes a shared contract (a CLI surface, a preset or skill text, an exported type, a wire format). Then the loop: fix its findings in this worktree, commit, and `bb thread tell` this same reviewer the new head SHA with what changed per finding; it answers closed, open or regressed; repeat until each is closed or its reason is recorded; archive it then.\n",
+      "brief": "the two SHAs pinned first (`git merge-base <fixed-point> HEAD` and `git rev-parse HEAD`) and their commit list; the spec and direction pasted in; standards source paths found by sweeping the repo root, docs/, .github/ and the touched directories; the documented check commands; the axes, both by default; a second reviewer on a split of the diff when one would leave its smart zone. Then the loop: fix its findings (yourself, or through a builder), commit, and `bb thread tell` this same reviewer the new head SHA with what changed per finding; it answers closed, open or regressed; repeat until each is closed or its reason is recorded; archive it then.\n",
       "candidates": [
-        {
-          "provider": "codex",
-          "model": "gpt-5.6-sol",
-          "reasoningLevel": "medium"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-opus-5[1m]",
-          "reasoningLevel": "medium"
-        }
-      ]
-    },
-    {
-      "id": "advisor",
-      "description": "Any decision worth a second opinion before acting on it: architecture, strategy, a split, a plan, a fork. Read-only; returns what it gets wrong, misses or could drop; the decision stays here.",
-      "permissionMode": "full",
-      "instruction": "An advisor checks the coordinator's plan before any builder runs. From the plan, the scout report and the direction when there is one, return what the plan gets wrong, what it misses and what it could drop, under 400 words. Read source only to test a claim the plan makes. The coordinator keeps the decision. Edit nothing.\n",
-      "brief": "the plan (the split, the briefs intended, what was dropped); the scout report; the direction when there is one.",
-      "candidates": [
-        {
-          "provider": "codex",
-          "model": "gpt-6-astra",
-          "reasoningLevel": "medium"
-        },
-        {
-          "provider": "claude-code",
-          "model": "claude-opus-5[1m]",
-          "reasoningLevel": "medium"
-        }
+        { "provider": "claude-code", "model": "claude-opus-5[1m]", "reasoningLevel": "medium" },
+        { "provider": "acp-antigravity", "model": "gemini-3.8-flash-{level}", "reasoningLevel": "high" },
+        { "provider": "claude-code", "model": "claude-fable-5-1", "reasoningLevel": "medium" }
       ]
     }
   ]
