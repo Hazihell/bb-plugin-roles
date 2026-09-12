@@ -604,36 +604,71 @@ describe("bb roles usage", () => {
 });
 
 describe("bb roles context", () => {
-  it("prints the latest context-window estimate for the invoking thread", async () => {
+  const turnEvent = { type: "thread/contextWindowUsage/updated", data: { contextWindowUsage: { usedTokens: 78304, modelContextWindow: 1000000, estimated: true } } };
+  const identity = { type: "thread/identity", data: { providerThreadId: "sess-1" } };
+  const sessionLog = [
+    JSON.stringify({ type: "assistant", isSidechain: false, message: { usage: { input_tokens: 10, cache_read_input_tokens: 100000, cache_creation_input_tokens: 2000 } } }),
+    JSON.stringify({ type: "assistant", isSidechain: false, message: { usage: { input_tokens: 32, cache_read_input_tokens: 120000, cache_creation_input_tokens: 1888 } } }),
+    JSON.stringify({ type: "assistant", isSidechain: true, message: { usage: { input_tokens: 5, cache_read_input_tokens: 9000, cache_creation_input_tokens: 0 } } }),
+    JSON.stringify({ type: "user", message: {} }),
+    "",
+  ].join("\n");
+
+  // biome-ignore lint: test double
+  function sdk(opts: { providerId: string; readFails?: boolean; events?: any[] }) {
     // biome-ignore lint: test double
-    const listCalls: any[] = [];
-    const { harness } = setup({
+    const readCalls: any[] = [];
+    return {
+      readCalls,
       sdk: {
         threads: {
+          // biome-ignore lint: test double
+          get: async (args: any) => makeThreadResponse({ id: args.threadId, environmentId: "env_abc", projectId: "proj_1", providerId: opts.providerId }),
           events: {
             // biome-ignore lint: test double
-            list: async (args: any) => {
-              listCalls.push(args);
-              return [{ type: "thread/contextWindowUsage/updated", data: { contextWindowUsage: { usedTokens: 78304, modelContextWindow: 1000000, estimated: true } } }];
-            },
+            list: async (args: any) => (opts.events ?? [turnEvent, identity]).filter((e) => args.types.includes(e.type)),
+          },
+        },
+        environments: { get: async () => ({ id: "env_abc", hostId: "host_1", path: "/Users/me/.bb/proj" }) },
+        files: {
+          // biome-ignore lint: test double
+          read: async (args: any) => {
+            readCalls.push(args);
+            if (opts.readFails) throw new Error("ENOENT");
+            return { content: sessionLog, contentEncoding: "utf8", path: args.path, sha256: "x", sizeBytes: 0 };
           },
         },
       },
-    });
+    };
+  }
+
+  it("reads the last main-thread request from the Claude session log, skipping sidechain lines", async () => {
+    const { sdk: fake, readCalls } = sdk({ providerId: "claude-code" });
+    const { harness } = setup({ sdk: fake });
     const result = await harness.behavior.runCli(["context"], { threadId: "th_self" });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("th_self: 78K of 1000K tokens (estimated, as of the last completed turn)\n");
-    expect(listCalls[0]).toMatchObject({ threadId: "th_self", types: ["thread/contextWindowUsage/updated"], order: "desc", limit: "1" });
+    expect(result.stdout).toBe("th_self: 122K of 1000K tokens (exact, as of the last API request)\n");
+    expect(readCalls[0]).toMatchObject({ hostId: "host_1" });
+    expect(readCalls[0].path.endsWith("/.claude/projects/-Users-me--bb-proj/sess-1.jsonl")).toBe(true);
 
     const json = await harness.behavior.runCli(["context", "th_other", "--json"], { threadId: "th_self" });
-    expect(JSON.parse(json.stdout!)).toEqual({ threadId: "th_other", usedTokens: 78304, modelContextWindow: 1000000, estimated: true });
-    expect(listCalls[1].threadId).toBe("th_other");
+    expect(JSON.parse(json.stdout!)).toEqual({ threadId: "th_other", usedTokens: 121920, modelContextWindow: 1000000, source: "claude-session-log", estimated: false });
   });
 
-  it("reports no estimate when the thread has none, and a usage error with no thread at all", async () => {
-    const { harness } = setup({ sdk: { threads: { events: { list: async () => [] } } } });
+  it("falls back to the BB turn event for other providers or when the log cannot be read", async () => {
+    const codex = setup({ sdk: sdk({ providerId: "codex" }).sdk });
+    const viaEvent = await codex.harness.behavior.runCli(["context"], { threadId: "th_self" });
+    expect(viaEvent.stdout).toBe("th_self: 78K of 1000K tokens (estimated, as of the last completed turn)\n");
+
+    const unreadable = setup({ sdk: sdk({ providerId: "claude-code", readFails: true }).sdk });
+    const fallback = await unreadable.harness.behavior.runCli(["context", "--json"], { threadId: "th_self" });
+    expect(JSON.parse(fallback.stdout!).source).toBe("bb-turn-event");
+  });
+
+  it("reports no reading when neither source has one, and a usage error with no thread at all", async () => {
+    const { harness } = setup({ sdk: sdk({ providerId: "codex", events: [] }).sdk });
     const none = await harness.behavior.runCli(["context"], { threadId: "th_self" });
-    expect(none.stdout).toBe("th_self: no context-window estimate recorded yet\n");
+    expect(none.stdout).toBe("th_self: no context-window reading available yet\n");
     const noThread = await harness.behavior.runCli(["context"], {});
     expect(noThread.exitCode).toBe(1);
   });

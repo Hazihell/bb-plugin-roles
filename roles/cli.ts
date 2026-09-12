@@ -32,6 +32,7 @@ import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./s
 import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
 import { parseDisabledRoles } from "./settings";
+import { readContext } from "./context";
 
 export interface RolesDeps {
   store: RoleStore;
@@ -625,10 +626,9 @@ function cmdUsage(positionals: string[], flags: Map<string, string[]>, roles: Ro
 
 // --- context ----------------------------------------------------------------
 //
-// `bb roles context [thread-id]`: the latest context-window estimate BB
-// recorded for a thread (its own by default), so a coordinator can size a
-// build against the smart zone without guessing. The figure lands when a
-// turn ends, so it is one turn stale and marked as an estimate by BB.
+// `bb roles context [thread-id]`: where a thread's context window stands (its
+// own by default), so a coordinator can size a build against the smart zone
+// without guessing. Source and freshness are chosen in roles/context.ts.
 
 async function cmdContext(
   positionals: string[],
@@ -638,25 +638,18 @@ async function cmdContext(
 ): Promise<PluginCliResult> {
   const threadId = positionals[0] ?? ctx.threadId;
   if (threadId === undefined) throw usageError("no thread: pass a thread id or run from a thread");
-  const rows = await bb.sdk.threads.events.list({
-    threadId,
-    types: ["thread/contextWindowUsage/updated"],
-    order: "desc",
-    limit: "1",
-  });
-  const row = rows[0] as { data?: { contextWindowUsage?: { usedTokens: number; modelContextWindow: number; estimated: boolean } } } | undefined;
-  const usage = row?.data?.contextWindowUsage;
-  if (usage === undefined) {
+  const reading = await readContext(bb, threadId);
+  if (reading === null) {
     if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify({ threadId, usage: null })}\n` };
-    return { exitCode: 0, stdout: `${threadId}: no context-window estimate recorded yet\n` };
+    return { exitCode: 0, stdout: `${threadId}: no context-window reading available yet\n` };
   }
-  const result = { threadId, usedTokens: usage.usedTokens, modelContextWindow: usage.modelContextWindow, estimated: usage.estimated };
-  if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify(result)}\n` };
+  if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify(reading)}\n` };
   const k = (n: number) => `${Math.round(n / 1000)}K`;
-  return {
-    exitCode: 0,
-    stdout: `${threadId}: ${k(usage.usedTokens)} of ${k(usage.modelContextWindow)} tokens${usage.estimated ? " (estimated, as of the last completed turn)" : ""}\n`,
-  };
+  const window = reading.modelContextWindow === null ? "" : ` of ${k(reading.modelContextWindow)}`;
+  const freshness = reading.source === "claude-session-log"
+    ? "exact, as of the last API request"
+    : `estimated, as of the last completed turn`;
+  return { exitCode: 0, stdout: `${threadId}: ${k(reading.usedTokens)}${window} tokens (${freshness})\n` };
 }
 
 // --- dispatch ---------------------------------------------------------
@@ -760,7 +753,7 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
       },
       {
         name: "context",
-        summary: "Show a thread's latest context-window estimate (its own by default), to size work against the smart zone.",
+        summary: "Show where a thread's context window stands (its own by default), to size work against the smart zone.",
         usage: "bb roles context [thread-id] [--json]",
       },
     ],

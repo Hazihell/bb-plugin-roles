@@ -99,10 +99,13 @@ Typing `@<role>` in the composer hands the agent the role's description, its
 brief untruncated, and a filled-in `bb roles spawn` line; the reviewer's brief
 is where the review loop lives.
 
-`bb roles context` prints the latest context-window estimate BB recorded for
-a thread (the invoking one by default): used tokens against the model's
-window, one turn stale since it lands when a turn ends. It is how a
-coordinator sizes a build against the smart zone named in the delegation rule.
+`bb roles context` prints where a thread's context window stands (the
+invoking thread by default). For a Claude Code thread on this machine it reads
+the provider's own session log, so the figure is exact and current to the last
+API request; sub-agent (sidechain) requests are skipped. Any other provider,
+or a remote host, falls back to BB's per-turn context-window event, which is
+one turn stale and marked estimated. It is how a coordinator sizes a build
+against the smart zone named in the delegation rule.
 
 ## Export / import
 
