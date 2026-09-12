@@ -43,6 +43,7 @@ bb roles delete <id> [--json]
 bb roles export [--json]
 bb roles import <file> [--machine <id-or-name>] [--json]
 bb roles quota [--json]
+bb roles context [thread-id] [--json]
 ```
 
 `spawn` reuses the invoking thread's own environment and project when
@@ -97,6 +98,11 @@ the host renders it, and the settings page can reset it to its default.
 Typing `@<role>` in the composer hands the agent the role's description, its
 brief untruncated, and a filled-in `bb roles spawn` line; the reviewer's brief
 is where the review loop lives.
+
+`bb roles context` prints the latest context-window estimate BB recorded for
+a thread (the invoking one by default): used tokens against the model's
+window, one turn stale since it lands when a turn ends. It is how a
+coordinator sizes a build against the smart zone named in the delegation rule.
 
 ## Export / import
 

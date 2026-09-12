@@ -602,3 +602,39 @@ describe("bb roles usage", () => {
     }
   });
 });
+
+describe("bb roles context", () => {
+  it("prints the latest context-window estimate for the invoking thread", async () => {
+    // biome-ignore lint: test double
+    const listCalls: any[] = [];
+    const { harness } = setup({
+      sdk: {
+        threads: {
+          events: {
+            // biome-ignore lint: test double
+            list: async (args: any) => {
+              listCalls.push(args);
+              return [{ type: "thread/contextWindowUsage/updated", data: { contextWindowUsage: { usedTokens: 78304, modelContextWindow: 1000000, estimated: true } } }];
+            },
+          },
+        },
+      },
+    });
+    const result = await harness.behavior.runCli(["context"], { threadId: "th_self" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("th_self: 78K of 1000K tokens (estimated, as of the last completed turn)\n");
+    expect(listCalls[0]).toMatchObject({ threadId: "th_self", types: ["thread/contextWindowUsage/updated"], order: "desc", limit: "1" });
+
+    const json = await harness.behavior.runCli(["context", "th_other", "--json"], { threadId: "th_self" });
+    expect(JSON.parse(json.stdout!)).toEqual({ threadId: "th_other", usedTokens: 78304, modelContextWindow: 1000000, estimated: true });
+    expect(listCalls[1].threadId).toBe("th_other");
+  });
+
+  it("reports no estimate when the thread has none, and a usage error with no thread at all", async () => {
+    const { harness } = setup({ sdk: { threads: { events: { list: async () => [] } } } });
+    const none = await harness.behavior.runCli(["context"], { threadId: "th_self" });
+    expect(none.stdout).toBe("th_self: no context-window estimate recorded yet\n");
+    const noThread = await harness.behavior.runCli(["context"], {});
+    expect(noThread.exitCode).toBe(1);
+  });
+});

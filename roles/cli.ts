@@ -623,6 +623,42 @@ function cmdUsage(positionals: string[], flags: Map<string, string[]>, roles: Ro
   return { exitCode: 0, stdout: `${table}\n` };
 }
 
+// --- context ----------------------------------------------------------------
+//
+// `bb roles context [thread-id]`: the latest context-window estimate BB
+// recorded for a thread (its own by default), so a coordinator can size a
+// build against the smart zone without guessing. The figure lands when a
+// turn ends, so it is one turn stale and marked as an estimate by BB.
+
+async function cmdContext(
+  positionals: string[],
+  flags: Map<string, string[]>,
+  ctx: PluginCliContext,
+  bb: BbPluginApi,
+): Promise<PluginCliResult> {
+  const threadId = positionals[0] ?? ctx.threadId;
+  if (threadId === undefined) throw usageError("no thread: pass a thread id or run from a thread");
+  const rows = await bb.sdk.threads.events.list({
+    threadId,
+    types: ["thread/contextWindowUsage/updated"],
+    order: "desc",
+    limit: "1",
+  });
+  const row = rows[0] as { data?: { contextWindowUsage?: { usedTokens: number; modelContextWindow: number; estimated: boolean } } } | undefined;
+  const usage = row?.data?.contextWindowUsage;
+  if (usage === undefined) {
+    if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify({ threadId, usage: null })}\n` };
+    return { exitCode: 0, stdout: `${threadId}: no context-window estimate recorded yet\n` };
+  }
+  const result = { threadId, usedTokens: usage.usedTokens, modelContextWindow: usage.modelContextWindow, estimated: usage.estimated };
+  if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify(result)}\n` };
+  const k = (n: number) => `${Math.round(n / 1000)}K`;
+  return {
+    exitCode: 0,
+    stdout: `${threadId}: ${k(usage.usedTokens)} of ${k(usage.modelContextWindow)} tokens${usage.estimated ? " (estimated, as of the last completed turn)" : ""}\n`,
+  };
+}
+
 // --- dispatch ---------------------------------------------------------
 
 async function runRolesCli(
@@ -655,6 +691,8 @@ async function runRolesCli(
         return await cmdQuota(flags, roles);
       case "usage":
         return cmdUsage(positionals, flags, roles);
+      case "context":
+        return await cmdContext(positionals, flags, ctx, bb);
       default:
         return { exitCode: 1, stderr: `unknown command "${command ?? ""}"; run bb roles --help\n` };
     }
@@ -719,6 +757,11 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
         name: "usage",
         summary: "Show quota measured around spawned children.",
         usage: "bb roles usage [--json] [thread-id...]",
+      },
+      {
+        name: "context",
+        summary: "Show a thread's latest context-window estimate (its own by default), to size work against the smart zone.",
+        usage: "bb roles context [thread-id] [--json]",
       },
     ],
     async run(argv, ctx) {
