@@ -73,7 +73,12 @@ own usage limits for Claude Code and Codex; a shelled-out Antigravity usage
 report, split into a Gemini pool and everything else, for `acp-antigravity`)
 falls at or below the **quota skip threshold** setting (default 5%), when
 its status can't run (unauthenticated, expired, not installed), or when an
-observed rate-limit block is still held for that provider. A block holds
+observed rate-limit block is still held for that provider. A usable
+candidate whose provider refuses the launch itself — a model or level it
+rejects — is skipped the same way, and the next one is tried; only when every
+usable candidate refuses does `spawn` fail, naming each refusal. A model
+containing `{level}` carries its level in its name, so no separate level is
+sent to its provider. A block holds
 until its reported reset time; with no reset time, it holds until an hour has
 passed *and* a fresh usage read shows headroom on every window. When every
 candidate is skipped, `spawn` refuses: exit 1, one line per candidate naming

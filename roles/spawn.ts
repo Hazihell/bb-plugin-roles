@@ -168,27 +168,46 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     const { thresholdPercent } = await settings.get();
     const evaluations = await evaluateCandidates(role, { quota, blocks, thresholdPercent });
     const after = args.after ?? -1;
-    const picked = evaluations.find((e) => e.index > after && e.usable) ?? null;
-    if (picked === null) throw new AllCandidatesExhausted(role, evaluations);
+    const usable = evaluations.filter((e) => e.index > after && e.usable);
+    if (usable.length === 0) throw new AllCandidatesExhausted(role, evaluations);
 
-    const level = args.reasoningOverride ?? picked.candidate.reasoningLevel;
-    const model = resolveModel(picked.candidate.model, level);
-
-    const child = await bb.sdk.threads.spawn({
-      projectId: args.projectId,
-      providerId: picked.candidate.provider,
-      model,
-      reasoningLevel: level,
-      permissionMode: role.permissionMode,
-      title: args.title,
-      parentThreadId: args.parentThreadId,
-      environment: args.environment,
-      prompt: args.prompt,
-      // Defer dispatch of the first turn so this plugin's own record of the
-      // child (below) is written before `thread.start` can possibly fire.
-      // See DISPATCH_DEFER_MS and the module header.
-      sendAt: Date.now() + DISPATCH_DEFER_MS,
-    });
+    // A candidate that has quota can still refuse the launch (a model or
+    // level its provider rejects). That is a reason to try the next one, not
+    // to fail the spawn: only when every usable candidate refuses does the
+    // coordinator see an error, naming each refusal.
+    const refusals: string[] = [];
+    let launched: { picked: CandidateEvaluation; level: ReasoningLevel; model: string; child: Awaited<ReturnType<typeof bb.sdk.threads.spawn>> } | null = null;
+    for (const picked of usable) {
+      const level = args.reasoningOverride ?? picked.candidate.reasoningLevel;
+      const model = resolveModel(picked.candidate.model, level);
+      try {
+        const child = await bb.sdk.threads.spawn({
+          projectId: args.projectId,
+          providerId: picked.candidate.provider,
+          model,
+          // A `{level}` model carries the level in its name; its provider
+          // takes no separate level, so it keeps its own default.
+          reasoningLevel: picked.candidate.model.includes("{level}") ? undefined : level,
+          permissionMode: role.permissionMode,
+          title: args.title,
+          parentThreadId: args.parentThreadId,
+          environment: args.environment,
+          prompt: args.prompt,
+          // Defer dispatch of the first turn so this plugin's own record of the
+          // child (below) is written before `thread.start` can possibly fire.
+          // See DISPATCH_DEFER_MS and the module header.
+          sendAt: Date.now() + DISPATCH_DEFER_MS,
+        });
+        launched = { picked, level, model, child };
+        break;
+      } catch (error) {
+        refusals.push(`${picked.candidate.provider} ${model} (${level}): ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (launched === null) {
+      throw new Error(`every usable candidate for role ${role.id} refused to launch:\n${refusals.map((line) => `  ${line}`).join("\n")}`);
+    }
+    const { picked, level, model, child } = launched;
 
     if (child.environmentId === null) {
       throw new Error(`Spawned thread ${child.id} has no environment id`);

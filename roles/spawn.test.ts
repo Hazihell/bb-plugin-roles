@@ -70,6 +70,7 @@ function setup(opts: {
   byProvider: Record<string, ProviderQuota>;
   quota?: QuotaReader;
   environmentGetImpl?: () => Promise<{ projectId: string }>;
+  refusingProviders?: Set<string>;
 }) {
   const spawnCalls: unknown[] = [];
   const sendCalls: unknown[] = [];
@@ -84,6 +85,9 @@ function setup(opts: {
         // biome-ignore lint: test double, args shape isn't the point
         spawn: async (args: any) => {
           spawnCalls.push(args);
+          if (opts.refusingProviders?.has(args.providerId)) {
+            throw new Error(`HTTP 400: Provider ${args.providerId} does not support ${args.reasoningLevel} reasoning level.`);
+          }
           const id = `th_child_${nextChildId++}`;
           return makeThreadResponse({ id, environmentId: `env_for_${id}` });
         },
@@ -158,13 +162,15 @@ describe("spawnByRole", () => {
       projectId: "proj_1",
       providerId: "p1",
       model: "m1-medium",
-      reasoningLevel: "medium",
       permissionMode: "full",
       title: "T",
       parentThreadId: "th_parent",
       environment: { type: "reuse", environmentId: "env_x" },
       prompt: "do it",
     });
+
+    // The level lives in the `{level}` model's name; no separate level is sent.
+    expect((spawnCalls[0] as { reasoningLevel?: string }).reasoningLevel).toBeUndefined();
 
     const record = spawned.get("th_child_1");
     expect(record?.stage).toBe("active");
@@ -269,7 +275,7 @@ describe("spawnByRole", () => {
     const result = await spawner.spawnByRole({ ...baseArgs, reasoningOverride: "high" });
 
     expect(result.level).toBe("high");
-    expect(spawnCalls[0]).toMatchObject({ model: "m1-high", reasoningLevel: "high" });
+    expect(spawnCalls[0]).toMatchObject({ model: "m1-high" });
   });
 
   it("throws AllCandidatesExhausted with one evaluation per candidate when every candidate is skipped", async () => {
@@ -596,5 +602,28 @@ describe("respawn robustness: nothing may reject out of turn.failed", () => {
     expect(spawnCalls).toHaveLength(1); // no respawn attempt: the role is gone
     expect(sendCalls).toHaveLength(1);
     expect(spawned.get("th_child_1")?.stage).toBe("failed");
+  });
+});
+
+describe("spawnByRole launch refusals", () => {
+  it("sends the level for a model that does not carry it in its name", async () => {
+    const { spawner, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1"]) });
+    await spawner.spawnByRole(baseArgs);
+    expect(spawnCalls[1]).toMatchObject({ providerId: "p2", model: "m2", reasoningLevel: "low" });
+  });
+
+  it("moves to the next usable candidate when one refuses to launch, and records that one", async () => {
+    const { spawner, spawnCalls, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1"]) });
+    const result = await spawner.spawnByRole(baseArgs);
+    expect(spawnCalls).toHaveLength(2);
+    expect(result.candidate.provider).toBe("p2");
+    expect(result.index).toBe(1);
+    expect(spawned.get(result.child.id)?.candidateIndex).toBe(1);
+  });
+
+  it("fails naming every refusal when no usable candidate launches", async () => {
+    const { spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1", "p2"]) });
+    await expect(spawner.spawnByRole(baseArgs)).rejects.toThrow(/refused to launch:\n  p1 m1-medium \(medium\): .*\n  p2 m2 \(low\): /);
+    expect(spawned.list()).toHaveLength(0);
   });
 });
