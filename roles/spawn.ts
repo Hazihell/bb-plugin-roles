@@ -2,14 +2,15 @@
 // rate limit.
 //
 // `spawnByRole` turns a role id into a live child: it tries the usable
-// candidates (roles/select.ts) in order, moving past one only when its
-// provider definitely refused the launch (an HTTP 4xx); the child is
-// recorded (roles/spawned.ts) before its first turn can start, and the
-// caller gets back which candidate and level were used. The respawn watcher listens for `turn.failed` on a
-// thread this plugin spawned; when the failure carries a blocked rate limit
-// it holds the provider (roles/blocks.ts), cancels any pending Provider
-// Retry, and calls `spawnByRole` again for the next candidate with the same
-// brief — archiving the dead child and messaging its parent once either way.
+// candidates (roles/select.ts) in order, moving past one only when its provider
+// definitely refused the launch (an HTTP 4xx); the child is recorded
+// (roles/spawned.ts) before its first turn can start, and the caller gets back
+// which candidate and level were used. The respawn watcher listens for
+// `turn.failed` on a thread this plugin spawned; when the failure carries a
+// blocked rate limit it holds the provider (roles/blocks.ts), cancels any
+// pending Provider Retry, and calls `spawnByRole` again for the next candidate
+// with the same brief — archiving the dead child and messaging its parent once
+// either way.
 //
 // Dispatch race: the installed SDK's `ThreadSpawnArgs` has no way to create
 // a thread without an initial turn (`input`/`prompt` is required either
