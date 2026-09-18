@@ -76,7 +76,8 @@ describe("registerInstructions", () => {
     expect(text).toContain("## Cast");
     expect(text).toContain("- **scout** (low) — Read-only exploration.");
     expect(text).toContain("- **builder** (low) — Implementation work.");
-    expect(text).toContain("bb roles spawn --role <id>");
+    // The spawn command lives once, in the Cast's closing line, not the rule.
+    expect(text!.split("bb roles spawn --role <id>")).toHaveLength(2);
     // Not a thread this plugin spawned: no role-specific instruction section.
     expect(text).not.toContain("## Role:");
     expect(text).not.toContain("Follow the plan exactly.");
@@ -84,7 +85,8 @@ describe("registerInstructions", () => {
 
   it("uses the child-mechanics delegation rule", async () => {
     expect(DEFAULT_DELEGATION_RULE.startsWith("## Delegation\n")).toBe(true);
-    expect(DEFAULT_DELEGATION_RULE).toContain("bb roles spawn --role <id>");
+    expect(DEFAULT_DELEGATION_RULE).not.toContain("bb roles spawn --role <id>");
+    expect(DEFAULT_DELEGATION_RULE).toContain("provider's own agent or subagent tool stays unused");
     expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or a `bb thread tell`");
     expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(1700);
   });

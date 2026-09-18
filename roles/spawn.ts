@@ -1,10 +1,11 @@
 // roles/spawn.ts — launches children by role and keeps them alive across a
 // rate limit.
 //
-// `spawnByRole` turns a role id into a live child: the first usable
-// candidate (roles/select.ts) wins, the child is recorded (roles/spawned.ts)
-// before its first turn can start, and the caller gets back which candidate
-// and level were used. The respawn watcher listens for `turn.failed` on a
+// `spawnByRole` turns a role id into a live child: it tries the usable
+// candidates (roles/select.ts) in order, moving past one only when its
+// provider definitely refused the launch (an HTTP 4xx); the child is
+// recorded (roles/spawned.ts) before its first turn can start, and the
+// caller gets back which candidate and level were used. The respawn watcher listens for `turn.failed` on a
 // thread this plugin spawned; when the failure carries a blocked rate limit
 // it holds the provider (roles/blocks.ts), cancels any pending Provider
 // Retry, and calls `spawnByRole` again for the next candidate with the same
@@ -31,7 +32,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { BlockRegistry } from "./blocks";
 import { execFileText } from "./exec";
 import type { QuotaReader } from "./quota";
-import { resolveModel, type Candidate, type ReasoningLevel, type Role } from "./schema";
+import { modelCarriesLevel, resolveModel, type Candidate, type ReasoningLevel, type Role } from "./schema";
 import { evaluateCandidates, formatRefusal, mostConstrainedWindow, type CandidateEvaluation } from "./select";
 import type { QuotaSnapshot, SpawnedRecord, SpawnedRegistry } from "./spawned";
 import type { RoleStore } from "./store";
@@ -94,6 +95,18 @@ export type ExecFn = (
 
 /** How long the first turn is deferred past `spawned.put()`; see the module header. */
 const DISPATCH_DEFER_MS = 2000;
+
+/**
+ * Whether a failed `threads.spawn` was definitely refused, so no thread
+ * exists: the SDK's HTTP error (`BbHttpError`, not exported to plugins)
+ * carries a numeric `status`, and only a 4xx is a refusal. A timeout, a 5xx
+ * or a network error may have created the thread, so it is not.
+ */
+export function isLaunchRefusal(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
 
 export interface SpawnerDeps {
   bb: BbPluginApi;
@@ -174,7 +187,9 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     // A candidate that has quota can still refuse the launch (a model or
     // level its provider rejects). That is a reason to try the next one, not
     // to fail the spawn: only when every usable candidate refuses does the
-    // coordinator see an error, naming each refusal.
+    // coordinator see an error, naming each refusal. Any other failure
+    // rethrows at once, since the thread may exist and a second launch would
+    // duplicate it.
     const refusals: string[] = [];
     let launched: { picked: CandidateEvaluation; level: ReasoningLevel; model: string; child: Awaited<ReturnType<typeof bb.sdk.threads.spawn>> } | null = null;
     for (const picked of usable) {
@@ -185,9 +200,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
           projectId: args.projectId,
           providerId: picked.candidate.provider,
           model,
-          // A `{level}` model carries the level in its name; its provider
-          // takes no separate level, so it keeps its own default.
-          reasoningLevel: picked.candidate.model.includes("{level}") ? undefined : level,
+          reasoningLevel: modelCarriesLevel(picked.candidate.model) ? undefined : level,
           permissionMode: role.permissionMode,
           title: args.title,
           parentThreadId: args.parentThreadId,
@@ -201,6 +214,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
         launched = { picked, level, model, child };
         break;
       } catch (error) {
+        if (!isLaunchRefusal(error)) throw error;
         refusals.push(`${picked.candidate.provider} ${model} (${level}): ${error instanceof Error ? error.message : String(error)}`);
       }
     }

@@ -32,7 +32,7 @@ import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./s
 import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
 import { DEFAULT_SMART_ZONE_TOKENS, parseDisabledRoles } from "./settings";
-import { formatZoneLine, readContext } from "./context";
+import { formatZoneLine, readContext, type ContextReading } from "./context";
 
 export interface RolesDeps {
   store: RoleStore;
@@ -300,19 +300,24 @@ function buildEnvironment(
   return { type: "reuse", environmentId: thread.environmentId };
 }
 
+/** How long a spawn waits for the zone reading before going without it. */
+const ZONE_READING_TIMEOUT_MS = 3000;
+
 /**
- * The spawn footer: where the invoking thread's own context stands against
- * the smart zone. A reading that can't be taken (no thread, an unreachable
- * host) costs the spawn nothing — the line is simply absent.
+ * Where the invoking thread's own context stands, for the spawn footer and
+ * `--json`'s `context`. A reading that can't be taken in time (no thread, an
+ * unreachable or silent host) costs the spawn nothing: it is simply null.
  */
-async function zoneFooter(bb: BbPluginApi, threadId: string | undefined, zoneTokens: number): Promise<string> {
-  if (threadId === undefined) return "";
+async function spawnZoneReading(bb: BbPluginApi, threadId: string | undefined): Promise<ContextReading | null> {
+  if (threadId === undefined) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ZONE_READING_TIMEOUT_MS);
+  });
   try {
-    const reading = await readContext(bb, threadId);
-    if (reading === null) return "";
-    return `${formatZoneLine(reading, zoneTokens)}\n`;
-  } catch {
-    return "";
+    return await Promise.race([readContext(bb, threadId).catch(() => null), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -351,6 +356,10 @@ async function cmdSpawn(
     projectId,
   });
   const resolvedModel = resolveModel(result.candidate.model, result.level);
+  // Every spawn says where the coordinator's own context stands against the
+  // smart zone, so it does not have to remember to check.
+  const zoneTokens = smartZoneTokens ?? DEFAULT_SMART_ZONE_TOKENS;
+  const reading = await spawnZoneReading(bb, ctx.threadId);
 
   if (hasFlag(flags, "json")) {
     return {
@@ -366,12 +375,13 @@ async function cmdSpawn(
         index: result.index,
         level: result.level,
         environmentId: result.child.environmentId,
+        context: reading === null
+          ? null
+          : { usedTokens: reading.usedTokens, zoneTokens, source: reading.source, estimated: reading.estimated },
       })}\n`,
     };
   }
-  // The footer is why the coordinator does not have to remember to check:
-  // every spawn says where its own context stands against the smart zone.
-  const zoneLine = await zoneFooter(bb, ctx.threadId, smartZoneTokens ?? DEFAULT_SMART_ZONE_TOKENS);
+  const zoneLine = reading === null ? "" : `${formatZoneLine(reading, zoneTokens)}\n`;
   return {
     exitCode: 0,
     stdout: `Spawned ${result.child.id} as ${roleId} on ${result.candidate.provider} ${resolvedModel} (${result.level})\n${zoneLine}`,

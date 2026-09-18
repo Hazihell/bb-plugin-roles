@@ -12,7 +12,7 @@ model candidates to try in turn — each a provider, a model (which may contain
 seeds seven roles once, on first load: **scout** and **advisor** read before a
 plan; **apprentice**, **builder** and **master** write code, separated by how
 much of the design is already settled; **reviewer** closes a change; **hand**
-takes any job the others refuse, with its brief supplying the expertise.
+takes any job no other role names, with its brief supplying the expertise.
 Seeding never repeats, even across a full delete, so edits always stick.
 
 ## Spawning by role
@@ -33,7 +33,9 @@ hour has passed and a fresh usage read shows headroom. When every candidate
 is skipped, `spawn` refuses with one line per candidate and its reset time —
 or, for a held block with no reported reset time, its earliest release time,
 flagged as such since fresh headroom is still required and the time may
-already be past.
+already be past. A usable candidate whose provider refuses the launch itself
+(an HTTP 4xx, such as a level it does not support) passes to the next one;
+any other launch failure stops the spawn, since the child may already exist.
 
 When a spawned child later hits a usage limit mid-turn, the plugin cancels
 its pending retry, respawns the next candidate with the same brief,
@@ -44,13 +46,22 @@ fallback by hand.
 ## Everywhere else
 
 Every thread's instructions carry the cast, one line per enabled role, with
-that role's default reasoning level — it is mandatory and always renders first; a thread this plugin spawned also
-carries that role's own instruction, in whatever budget is left under the
-4096-character cap. Typing `@builder` in the composer hands the agent the
+that role's default reasoning level — it is mandatory and always renders
+first; a thread this plugin spawned also carries that role's own
+instruction, in whatever budget is left under the 4096-character cap. Typing `@builder` in the composer hands the agent the
 role's description, its whole brief and a ready `bb roles spawn` line. `bb roles export` and
 `bb roles import <file>` move a whole cast as one JSON document, so a cast
 can be shared, versioned or restored; import **replaces** the whole set —
 a role missing from the document is deleted, not left in place.
+
+## The smart zone
+
+The `smartZoneTokens` setting (120K by default) is how much context a
+thread keeps before its attention thins. `bb roles context [thread-id]`
+prints where a thread stands against it, and every `bb roles spawn` ends
+with the same line for the coordinator itself (in `--json`, a `context`
+field), so a build is sized against it without asking. A reading that takes
+longer than 3 seconds is dropped, never stalling the spawn.
 
 ## CLI
 

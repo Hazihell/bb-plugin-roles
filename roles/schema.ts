@@ -57,3 +57,11 @@ export type SaveRoleInput = z.infer<typeof saveRoleInputSchema>;
 export function resolveModel(model: string, level: ReasoningLevel): string {
   return model.replaceAll("{level}", level);
 }
+
+/**
+ * Whether a candidate's model names its level (`{level}`). Such a model's
+ * provider takes no separate level: the level is already in the model id.
+ */
+export function modelCarriesLevel(model: string): boolean {
+  return model.includes("{level}");
+}

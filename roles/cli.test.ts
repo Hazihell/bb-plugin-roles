@@ -1,5 +1,5 @@
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BlockRegistry, QuotaForCandidate } from "./blocks";
 import { registerCli, type RolesDeps } from "./cli";
 import { createQuotaReader, type Pool, type ProviderQuota, type QuotaReader, type QuotaSdk } from "./quota";
@@ -701,7 +701,7 @@ describe("bb roles spawn context footer", () => {
     expect(result.stdout!.trimEnd().endsWith("context: 78K of the 120K smart zone (estimated, as of the last completed turn)")).toBe(true);
   });
 
-  it("measures the footer against the configured zone, and leaves --json alone", async () => {
+  it("measures the footer against the configured zone, and carries the reading as --json's context", async () => {
     const { harness, store } = setup({ sdk: spawnSdk(), quotaByProvider: { p1: okQuota() }, smartZoneTokens: 60_000 });
     store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
 
@@ -711,7 +711,45 @@ describe("bb roles spawn context footer", () => {
 
     const json = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x", "--json"], { threadId: "th_invoker" });
     expect(json.stdout).not.toContain("smart zone");
-    expect(JSON.parse(json.stdout!).childId).toBe("th_child_1");
+    const parsed = JSON.parse(json.stdout!);
+    expect(parsed.childId).toBe("th_child_1");
+    expect(parsed.context).toEqual({ usedTokens: 78304, zoneTokens: 60000, source: "bb-turn-event", estimated: true });
+  });
+
+  it("gives --json a null context when no reading can be taken", async () => {
+    const sdk = spawnSdk();
+    sdk.threads.events.list = async () => {
+      throw new Error("unreachable host");
+    };
+    const { harness, store } = setup({ sdk, quotaByProvider: { p1: okQuota() } });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const json = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x", "--json"], { threadId: "th_invoker" });
+    expect(json.exitCode).toBe(0);
+    expect(JSON.parse(json.stdout!).context).toBeNull();
+  });
+
+  it("drops the reading after 3s rather than stalling the spawn on a host that never answers", async () => {
+    const sdk = spawnSdk();
+    sdk.threads.events.list = () => new Promise(() => {});
+    const { harness, store } = setup({ sdk, quotaByProvider: { p1: okQuota() } });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const text = harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x"], { threadId: "th_invoker" });
+      await vi.advanceTimersByTimeAsync(3000);
+      const result = await text;
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Spawned th_child_1");
+      expect(result.stdout).not.toContain("smart zone");
+
+      const json = harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x", "--json"], { threadId: "th_invoker" });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(JSON.parse((await json).stdout!).context).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("drops the footer rather than failing the spawn when no reading can be taken", async () => {

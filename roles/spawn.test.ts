@@ -71,6 +71,8 @@ function setup(opts: {
   quota?: QuotaReader;
   environmentGetImpl?: () => Promise<{ projectId: string }>;
   refusingProviders?: Set<string>;
+  /** Providers whose launch fails without a 4xx: the thread may exist. */
+  failingProviders?: Map<string, Error>;
 }) {
   const spawnCalls: unknown[] = [];
   const sendCalls: unknown[] = [];
@@ -86,8 +88,11 @@ function setup(opts: {
         spawn: async (args: any) => {
           spawnCalls.push(args);
           if (opts.refusingProviders?.has(args.providerId)) {
-            throw new Error(`HTTP 400: Provider ${args.providerId} does not support ${args.reasoningLevel} reasoning level.`);
+            // Shaped like the SDK's BbHttpError: a message and a numeric status.
+            throw Object.assign(new Error(`HTTP 400: Provider ${args.providerId} does not support ${args.reasoningLevel} reasoning level.`), { name: "BbHttpError", status: 400 });
           }
+          const failure = opts.failingProviders?.get(args.providerId);
+          if (failure !== undefined) throw failure;
           const id = `th_child_${nextChildId++}`;
           return makeThreadResponse({ id, environmentId: `env_for_${id}` });
         },
@@ -625,5 +630,18 @@ describe("spawnByRole launch refusals", () => {
     const { spawner, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1", "p2"]) });
     await expect(spawner.spawnByRole(baseArgs)).rejects.toThrow(/refused to launch:\n  p1 m1-medium \(medium\): .*\n  p2 m2 \(low\): /);
     expect(spawned.list()).toHaveLength(0);
+  });
+
+  it("rethrows a failure that is not a 4xx without trying the next candidate, since the thread may exist", async () => {
+    for (const failure of [
+      Object.assign(new Error("HTTP 503: unavailable"), { name: "BbHttpError", status: 503 }),
+      Object.assign(new Error("BB request timed out after 30 seconds."), { name: "BbRequestTimeoutError" }),
+      new Error("fetch failed"),
+    ]) {
+      const { spawner, spawnCalls, spawned } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, failingProviders: new Map([["p1", failure]]) });
+      await expect(spawner.spawnByRole(baseArgs)).rejects.toBe(failure);
+      expect(spawnCalls).toHaveLength(1);
+      expect(spawned.list()).toHaveLength(0);
+    }
   });
 });

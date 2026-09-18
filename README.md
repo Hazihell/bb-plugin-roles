@@ -111,8 +111,7 @@ short. Truncation is marked by "…". The
 Delegation rule is a multiline setting;
 the host renders it, and the settings page can reset it to its default.
 Typing `@<role>` in the composer hands the agent the role's description, its
-brief untruncated, and a filled-in `bb roles spawn` line; the reviewer's brief
-is where the review loop lives.
+brief untruncated, and a filled-in `bb roles spawn` line.
 
 `bb roles context` prints where a thread's context window stands against the
 **smart zone** — the `smartZoneTokens` setting, 120K by default — for the
