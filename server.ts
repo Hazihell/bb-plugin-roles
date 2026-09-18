@@ -35,6 +35,13 @@ export default async function plugin(bb: BbPluginApi) {
       experimental_schema: z.number().int().min(0).max(100),
       default: 5,
     },
+    smartZoneTokens: {
+      type: "number",
+      label: "Smart zone (tokens)",
+      description: "The context a thread should plan, build and review inside. `bb roles context` and every spawn report against it.",
+      experimental_schema: z.number().int().min(10_000).max(2_000_000),
+      default: 120_000,
+    },
     delegationRule: {
       type: "string",
       experimental_multiline: true,

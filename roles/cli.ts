@@ -31,15 +31,15 @@ import { evaluateCandidates, formatRefusal, formatResetSuffix, type ResetKind } 
 import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./spawn";
 import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
-import { parseDisabledRoles } from "./settings";
-import { readContext } from "./context";
+import { DEFAULT_SMART_ZONE_TOKENS, parseDisabledRoles } from "./settings";
+import { formatZoneLine, readContext } from "./context";
 
 export interface RolesDeps {
   store: RoleStore;
   quota: QuotaReader;
   blocks: BlockRegistry;
   spawner: Spawner;
-  settings: { get(): Promise<{ thresholdPercent: number; disabledRoles?: string }> };
+  settings: { get(): Promise<{ thresholdPercent: number; smartZoneTokens?: number; disabledRoles?: string }> };
   spawned: SpawnedRegistry;
 }
 
@@ -300,6 +300,22 @@ function buildEnvironment(
   return { type: "reuse", environmentId: thread.environmentId };
 }
 
+/**
+ * The spawn footer: where the invoking thread's own context stands against
+ * the smart zone. A reading that can't be taken (no thread, an unreachable
+ * host) costs the spawn nothing — the line is simply absent.
+ */
+async function zoneFooter(bb: BbPluginApi, threadId: string | undefined, zoneTokens: number): Promise<string> {
+  if (threadId === undefined) return "";
+  try {
+    const reading = await readContext(bb, threadId);
+    if (reading === null) return "";
+    return `${formatZoneLine(reading, zoneTokens)}\n`;
+  } catch {
+    return "";
+  }
+}
+
 async function cmdSpawn(
   flags: Map<string, string[]>,
   ctx: PluginCliContext,
@@ -307,7 +323,8 @@ async function cmdSpawn(
   roles: RolesDeps,
 ): Promise<PluginCliResult> {
   const roleId = requireFlag(flags, "role");
-  const disabledRoles = parseDisabledRoles((await roles.settings.get()).disabledRoles);
+  const { smartZoneTokens, disabledRoles: disabledRolesValue } = await roles.settings.get();
+  const disabledRoles = parseDisabledRoles(disabledRolesValue);
   if (disabledRoles.has(roleId)) {
     throw usageError(`role ${roleId} is disabled in the Roles plugin settings`);
   }
@@ -352,9 +369,12 @@ async function cmdSpawn(
       })}\n`,
     };
   }
+  // The footer is why the coordinator does not have to remember to check:
+  // every spawn says where its own context stands against the smart zone.
+  const zoneLine = await zoneFooter(bb, ctx.threadId, smartZoneTokens ?? DEFAULT_SMART_ZONE_TOKENS);
   return {
     exitCode: 0,
-    stdout: `Spawned ${result.child.id} as ${roleId} on ${result.candidate.provider} ${resolvedModel} (${result.level})\n`,
+    stdout: `Spawned ${result.child.id} as ${roleId} on ${result.candidate.provider} ${resolvedModel} (${result.level})\n${zoneLine}`,
   };
 }
 
@@ -635,21 +655,19 @@ async function cmdContext(
   flags: Map<string, string[]>,
   ctx: PluginCliContext,
   bb: BbPluginApi,
+  roles: RolesDeps,
 ): Promise<PluginCliResult> {
   const threadId = positionals[0] ?? ctx.threadId;
   if (threadId === undefined) throw usageError("no thread: pass a thread id or run from a thread");
+  const zoneTokens = (await roles.settings.get()).smartZoneTokens ?? DEFAULT_SMART_ZONE_TOKENS;
   const reading = await readContext(bb, threadId);
-  if (reading === null) {
-    if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify({ threadId, usage: null })}\n` };
-    return { exitCode: 0, stdout: `${threadId}: no context-window reading available yet\n` };
+  if (hasFlag(flags, "json")) {
+    const payload = reading === null
+      ? { threadId, zoneTokens, usage: null }
+      : { ...reading, zoneTokens };
+    return { exitCode: 0, stdout: `${JSON.stringify(payload)}\n` };
   }
-  if (hasFlag(flags, "json")) return { exitCode: 0, stdout: `${JSON.stringify(reading)}\n` };
-  const k = (n: number) => `${Math.round(n / 1000)}K`;
-  const window = reading.modelContextWindow === null ? "" : ` of ${k(reading.modelContextWindow)}`;
-  const freshness = reading.source === "claude-session-log"
-    ? "exact, as of the last API request"
-    : `estimated, as of the last completed turn`;
-  return { exitCode: 0, stdout: `${threadId}: ${k(reading.usedTokens)}${window} tokens (${freshness})\n` };
+  return { exitCode: 0, stdout: `${threadId}: ${formatZoneLine(reading, zoneTokens)}\n` };
 }
 
 // --- dispatch ---------------------------------------------------------
@@ -685,7 +703,7 @@ async function runRolesCli(
       case "usage":
         return cmdUsage(positionals, flags, roles);
       case "context":
-        return await cmdContext(positionals, flags, ctx, bb);
+        return await cmdContext(positionals, flags, ctx, bb, roles);
       default:
         return { exitCode: 1, stderr: `unknown command "${command ?? ""}"; run bb roles --help\n` };
     }

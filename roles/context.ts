@@ -103,3 +103,24 @@ export async function readContext(bb: BbPluginApi, threadId: string): Promise<Co
   }
   return turnEvent;
 }
+
+/** Rounded thousands, the unit every context line in this plugin prints. */
+function k(tokens: number): string {
+  return `${Math.round(tokens / 1000)}K`;
+}
+
+/**
+ * The one-line context report shared by `bb roles context` and the footer
+ * every `bb roles spawn` prints: where the thread stands against the smart
+ * zone, how fresh the figure is, and — past the zone — what to do about it.
+ */
+export function formatZoneLine(reading: ContextReading | null, zoneTokens: number): string {
+  if (reading === null) return `context: no reading yet, of the ${k(zoneTokens)} smart zone`;
+  const freshness = reading.source === "claude-session-log"
+    ? "exact, as of the last API request"
+    : "estimated, as of the last completed turn";
+  const past = reading.usedTokens >= zoneTokens
+    ? " — past the zone: the next chunk goes to a child"
+    : "";
+  return `context: ${k(reading.usedTokens)} of the ${k(zoneTokens)} smart zone (${freshness})${past}`;
+}

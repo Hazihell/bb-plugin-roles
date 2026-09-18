@@ -18,9 +18,18 @@ A role has an `id`, a trigger `description`, a `permissionMode` (default
 use when spawning this role, and an ordered list of `candidates` —
 each a provider id, a model (which may contain `{level}`, resolved at spawn
 time), and a default reasoning level. The plugin seeds the committed cast in
-[`roles/cast.json`](roles/cast.json) once, ever,
-on first load — **advisor**, **scout**, **builder**, **apprentice**,
-**reviewer** — and never reseeds, even across a full delete.
+[`roles/cast.json`](roles/cast.json) once, ever, on first load — **scout**,
+**advisor**, **apprentice**, **builder**, **master**, **reviewer**, **hand** —
+and never reseeds, even across a full delete.
+
+The cast covers a build from both ends. Three roles write code, separated by
+how much of the design is already settled: **apprentice** for mechanical work
+with no decision left in it, **builder** for a seam whose shape is agreed, and
+**master** for a seam whose hard part is the design itself. **scout** and
+**advisor** are the read-only pair before a plan; **reviewer** closes it. What
+none of them name goes to **hand**, whose brief supplies the expertise — a
+design critique, a docs pass, an audit — so a new specialism costs a brief
+rather than a new role.
 
 ## `bb roles`
 
@@ -85,7 +94,8 @@ the dead child in place.
 ## Instructions and mentions
 
 An unspawned thread receives the configured Delegation rule followed by a Cast
-section, one line per role, plus a `bb roles spawn` pointer. A thread this
+section, one line per role — its id, its first candidate's reasoning level, its
+trigger description and its brief — plus a `bb roles spawn` pointer. A thread this
 plugin spawned with a role instruction receives its role section (`## Role: <id>`
 and its `instruction`), followed by a paragraph naming its coordinator and
 explaining how to ask it questions when it has a coordinator; if that role has
@@ -99,8 +109,12 @@ Typing `@<role>` in the composer hands the agent the role's description, its
 brief untruncated, and a filled-in `bb roles spawn` line; the reviewer's brief
 is where the review loop lives.
 
-`bb roles context` prints where a thread's context window stands (the
-invoking thread by default). For a Claude Code thread on this machine it reads
+`bb roles context` prints where a thread's context window stands against the
+**smart zone** — the `smartZoneTokens` setting, 120K by default — for the
+invoking thread by default. Every `bb roles spawn` ends with the same line for
+the invoking thread, so a coordinator is told where it stands without having to
+remember to ask; a reading that cannot be taken drops the line instead of
+failing the spawn. For a Claude Code thread on this machine it reads
 the provider's own session log, so the figure is exact and current to the last
 API request; sub-agent (sidechain) requests are skipped. Any other provider,
 or a remote host, falls back to BB's per-turn context-window event, which is
@@ -151,6 +165,7 @@ Or let `bb plugin dev` rebuild and reload on every save.
 ```
 bb plugin config roles
 bb plugin config roles set thresholdPercent 10
+bb plugin config roles set smartZoneTokens 120000
 bb plugin reload roles
 ```
 

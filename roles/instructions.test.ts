@@ -74,8 +74,8 @@ describe("registerInstructions", () => {
 
     expect(text).toContain(DEFAULT_DELEGATION_RULE);
     expect(text).toContain("## Cast");
-    expect(text).toContain("- **scout** — Read-only exploration.");
-    expect(text).toContain("- **builder** — Implementation work.");
+    expect(text).toContain("- **scout** (low) — Read-only exploration.");
+    expect(text).toContain("- **builder** (low) — Implementation work.");
     expect(text).toContain("bb roles spawn --role <id>");
     // Not a thread this plugin spawned: no role-specific instruction section.
     expect(text).not.toContain("## Role:");
@@ -85,8 +85,8 @@ describe("registerInstructions", () => {
   it("uses the child-mechanics delegation rule", async () => {
     expect(DEFAULT_DELEGATION_RULE.startsWith("## Delegation\n")).toBe(true);
     expect(DEFAULT_DELEGATION_RULE).toContain("bb roles spawn --role <id>");
-    expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or `bb thread tell`");
-    expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(1200);
+    expect(DEFAULT_DELEGATION_RULE).toContain("End the turn after a spawn or a `bb thread tell`");
+    expect(DEFAULT_DELEGATION_RULE.length).toBeLessThan(1700);
   });
 
   it("renders the whole brief after a truncated description", async () => {
@@ -103,7 +103,7 @@ describe("registerInstructions", () => {
     await registerInstructions({ bb, store, spawned, settings });
 
     const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
-    expect(text).toContain(`- **builder** — ${"D".repeat(199)}… Brief: ${"B".repeat(201)}`);
+    expect(text).toContain(`- **builder** (low) — ${"D".repeat(199)}… Brief: ${"B".repeat(201)}`);
   });
 
   it("renders the seeded reviewer brief whole, through its archive step", async () => {
@@ -113,14 +113,14 @@ describe("registerInstructions", () => {
     const spawned = createSpawnedRegistry(bb);
     await registerInstructions({ bb, store, spawned, settings });
     const text = harness.registrations.instructionProvider!({ threadId: "th_x", projectId: "proj_1" });
-    expect(text).toContain("archive it then.");
+    expect(text).toContain("Brief: the two SHAs and the commits between them");
     expect(text!.length).toBeLessThanOrEqual(4096);
   });
 
-  it("keeps the default rule followed by a five-role cast within 4096 characters", async () => {
+  it("keeps the default rule followed by a seven-role cast within 4096 characters", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "roles-test-brief-budget" });
     const store = createRoleStore(bb);
-    for (const id of ["advisor", "scout", "builder", "apprentice", "reviewer"] as const) {
+    for (const id of ["advisor", "scout", "builder", "apprentice", "master", "reviewer", "hand"] as const) {
       store.create({
         id,
         description: "D".repeat(200),
@@ -246,7 +246,7 @@ describe("registerInstructions", () => {
     });
 
     expect(text).toContain("## Cast");
-    expect(text).toContain("- **scout** — Read-only exploration.");
+    expect(text).toContain("- **scout** (low) — Read-only exploration.");
     expect(text).not.toContain("## Role:");
   });
 
@@ -315,7 +315,7 @@ describe("registerInstructions", () => {
       threadId: "th_x",
       projectId: "proj_1",
     });
-    expect(text).toContain("- **advisor** — Checks a plan.");
+    expect(text).toContain("- **advisor** (low) — Checks a plan.");
   });
 
   it("reflects a changed disabledRoles setting on the next resolution", async () => {

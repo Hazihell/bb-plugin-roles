@@ -26,7 +26,8 @@ function truncate(text: string, max: number): string {
 
 function buildCastSection(roles: Role[]): string {
   const lines = roles.map(
-    (role) => `- **${role.id}** — ${truncate(role.description, DESCRIPTION_MAX)}${role.brief === undefined ? "" : ` Brief: ${role.brief}`}`,
+    (role) =>
+      `- **${role.id}** (${role.candidates[0]?.reasoningLevel ?? "medium"}) — ${truncate(role.description, DESCRIPTION_MAX)}${role.brief === undefined ? "" : ` Brief: ${role.brief}`}`,
   );
   return [
     "## Cast",

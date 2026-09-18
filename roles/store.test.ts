@@ -8,18 +8,20 @@ describe("createRoleStore", () => {
     const store = createRoleStore(bb);
 
     store.seedOnce();
-    expect(store.list()).toHaveLength(5);
+    expect(store.list()).toHaveLength(7);
     expect(store.list().map((role) => role.id)).toEqual([
-      "advisor",
       "scout",
-      "builder",
+      "advisor",
       "apprentice",
+      "builder",
+      "master",
       "reviewer",
+      "hand"
     ]);
 
-    // Calling it again is a no-op: still 5, unchanged.
+    // Calling it again is a no-op: still 7, unchanged.
     store.seedOnce();
-    expect(store.list()).toHaveLength(5);
+    expect(store.list()).toHaveLength(7);
 
     // Deleting every role and reseeding never brings them back.
     for (const role of store.list()) store.remove(role.id);
@@ -68,7 +70,7 @@ describe("createRoleStore", () => {
       ),
     });
 
-    expect(store.list()).toHaveLength(5);
+    expect(store.list()).toHaveLength(7);
     expect(store.get("scout")?.description).toBe(
       "A rewritten scout description.",
     );

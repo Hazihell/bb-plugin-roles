@@ -7,11 +7,13 @@ first-class thing in BB.
 
 A role is a named record: a trigger description, a permission mode, an
 optional instruction, an optional coordinator brief, and an ordered list of
-model candidates to try in turn — each a provider, a model (which may contain `{level}`, resolved at
-spawn time) and a default reasoning level. The plugin seeds five roles once,
-on first load, copied from the common custom-instructions cast: **advisor**,
-**scout**, **builder**, **apprentice**, **reviewer**. Seeding never repeats,
-even across a full delete, so edits always stick.
+model candidates to try in turn — each a provider, a model (which may contain
+`{level}`, resolved at spawn time) and a default reasoning level. The plugin
+seeds seven roles once, on first load: **scout** and **advisor** read before a
+plan; **apprentice**, **builder** and **master** write code, separated by how
+much of the design is already settled; **reviewer** closes a change; **hand**
+takes any job the others refuse, with its brief supplying the expertise.
+Seeding never repeats, even across a full delete, so edits always stick.
 
 ## Spawning by role
 
@@ -41,8 +43,8 @@ fallback by hand.
 
 ## Everywhere else
 
-Every thread's instructions carry the cast, one line per enabled role — it is
-mandatory and always renders first; a thread this plugin spawned also
+Every thread's instructions carry the cast, one line per enabled role, with
+that role's default reasoning level — it is mandatory and always renders first; a thread this plugin spawned also
 carries that role's own instruction, in whatever budget is left under the
 4096-character cap. Typing `@builder` in the composer hands the agent the
 role's description, its whole brief and a ready `bb roles spawn` line. `bb roles export` and

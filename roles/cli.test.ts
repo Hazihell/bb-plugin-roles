@@ -54,6 +54,7 @@ function setup(opts: {
   held?: Set<string>;
   heldUntil?: Map<string, { resetsAtMs: number; hasResetTime: boolean }>;
   disabledRoles?: string;
+  smartZoneTokens?: number;
 } = {}) {
   const { bb, harness } = createFakePluginHost({
     pluginId: "roles-cli-test",
@@ -63,7 +64,7 @@ function setup(opts: {
   const quota = fakeQuotaReader(opts.quotaByProvider ?? {});
   const blocks = fakeBlocks(opts.held, opts.heldUntil);
   const spawned = createSpawnedRegistry(bb);
-  const settings = { get: async () => ({ thresholdPercent: 5, disabledRoles: opts.disabledRoles ?? "[]" }) };
+  const settings = { get: async () => ({ thresholdPercent: 5, smartZoneTokens: opts.smartZoneTokens, disabledRoles: opts.disabledRoles ?? "[]" }) };
   const spawner = createSpawner({ bb, store, quota, blocks, spawned, settings });
   const roles: RolesDeps = { store, quota, blocks, spawner, settings, spawned };
   registerCli(bb, roles);
@@ -101,7 +102,7 @@ describe("bb roles spawn", () => {
       threadId: "th_invoker",
     });
 
-    expect(getCalls).toEqual([{ threadId: "th_invoker" }]);
+    expect(getCalls[0]).toEqual({ threadId: "th_invoker" });
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toMatchObject({
       projectId: "proj_1",
@@ -647,18 +648,18 @@ describe("bb roles context", () => {
     const { harness } = setup({ sdk: fake });
     const result = await harness.behavior.runCli(["context"], { threadId: "th_self" });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("th_self: 122K of 1000K tokens (exact, as of the last API request)\n");
+    expect(result.stdout).toBe("th_self: context: 122K of the 120K smart zone (exact, as of the last API request) — past the zone: the next chunk goes to a child\n");
     expect(readCalls[0]).toMatchObject({ hostId: "host_1" });
     expect(readCalls[0].path.endsWith("/.claude/projects/-Users-me--bb-proj/sess-1.jsonl")).toBe(true);
 
     const json = await harness.behavior.runCli(["context", "th_other", "--json"], { threadId: "th_self" });
-    expect(JSON.parse(json.stdout!)).toEqual({ threadId: "th_other", usedTokens: 121920, modelContextWindow: 1000000, source: "claude-session-log", estimated: false });
+    expect(JSON.parse(json.stdout!)).toEqual({ threadId: "th_other", usedTokens: 121920, modelContextWindow: 1000000, source: "claude-session-log", estimated: false, zoneTokens: 120000 });
   });
 
   it("falls back to the BB turn event for other providers or when the log cannot be read", async () => {
     const codex = setup({ sdk: sdk({ providerId: "codex" }).sdk });
     const viaEvent = await codex.harness.behavior.runCli(["context"], { threadId: "th_self" });
-    expect(viaEvent.stdout).toBe("th_self: 78K of 1000K tokens (estimated, as of the last completed turn)\n");
+    expect(viaEvent.stdout).toBe("th_self: context: 78K of the 120K smart zone (estimated, as of the last completed turn)\n");
 
     const unreadable = setup({ sdk: sdk({ providerId: "claude-code", readFails: true }).sdk });
     const fallback = await unreadable.harness.behavior.runCli(["context", "--json"], { threadId: "th_self" });
@@ -668,8 +669,62 @@ describe("bb roles context", () => {
   it("reports no reading when neither source has one, and a usage error with no thread at all", async () => {
     const { harness } = setup({ sdk: sdk({ providerId: "codex", events: [] }).sdk });
     const none = await harness.behavior.runCli(["context"], { threadId: "th_self" });
-    expect(none.stdout).toBe("th_self: no context-window reading available yet\n");
+    expect(none.stdout).toBe("th_self: context: no reading yet, of the 120K smart zone\n");
     const noThread = await harness.behavior.runCli(["context"], {});
     expect(noThread.exitCode).toBe(1);
+  });
+});
+
+describe("bb roles spawn context footer", () => {
+  // biome-ignore lint: test double
+  function spawnSdk(): any {
+    const turnEvent = { type: "thread/contextWindowUsage/updated", data: { contextWindowUsage: { usedTokens: 78304, modelContextWindow: 1000000, estimated: true } } };
+    return {
+      threads: {
+        // biome-ignore lint: test double
+        get: async (args: any) => makeThreadResponse({ id: args.threadId, environmentId: "env_abc", projectId: "proj_1", providerId: "codex" }),
+        spawn: async () => makeThreadResponse({ id: "th_child_1", environmentId: "env_abc" }),
+        events: {
+          // biome-ignore lint: test double
+          list: async (args: any) => [turnEvent].filter((e) => args.types.includes(e.type)),
+        },
+      },
+    };
+  }
+
+  it("ends a spawn with where the coordinator's own context stands", async () => {
+    const { harness, store } = setup({ sdk: spawnSdk(), quotaByProvider: { p1: okQuota() } });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x"], { threadId: "th_invoker" });
+    expect(result.stdout).toContain("Spawned th_child_1");
+    expect(result.stdout!.trimEnd().endsWith("context: 78K of the 120K smart zone (estimated, as of the last completed turn)")).toBe(true);
+  });
+
+  it("measures the footer against the configured zone, and leaves --json alone", async () => {
+    const { harness, store } = setup({ sdk: spawnSdk(), quotaByProvider: { p1: okQuota() }, smartZoneTokens: 60_000 });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x"], { threadId: "th_invoker" });
+    expect(result.stdout).toContain("78K of the 60K smart zone");
+    expect(result.stdout).toContain("past the zone: the next chunk goes to a child");
+
+    const json = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x", "--json"], { threadId: "th_invoker" });
+    expect(json.stdout).not.toContain("smart zone");
+    expect(JSON.parse(json.stdout!).childId).toBe("th_child_1");
+  });
+
+  it("drops the footer rather than failing the spawn when no reading can be taken", async () => {
+    const sdk = spawnSdk();
+    sdk.threads.events.list = async () => {
+      throw new Error("unreachable host");
+    };
+    const { harness, store } = setup({ sdk, quotaByProvider: { p1: okQuota() } });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await harness.behavior.runCli(["spawn", "--role", "builder", "--prompt", "x"], { threadId: "th_invoker" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Spawned th_child_1");
+    expect(result.stdout).not.toContain("smart zone");
   });
 });
