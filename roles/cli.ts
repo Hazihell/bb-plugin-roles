@@ -28,7 +28,7 @@ import {
   type Role,
 } from "./schema";
 import { evaluateCandidates, formatRefusal, formatResetSuffix, type ResetKind } from "./select";
-import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment } from "./spawn";
+import { AllCandidatesExhausted, type Spawner, type SpawnEnvironment, type WorktreeBase } from "./spawn";
 import type { SpawnedRecord, SpawnedRegistry } from "./spawned";
 import { roleExportSchema, type RoleStore } from "./store";
 import { DEFAULT_SMART_ZONE_TOKENS, parseDisabledRoles } from "./settings";
@@ -269,10 +269,12 @@ async function resolveBriefPatch(
 
 // --- spawn ----------------------------------------------------------------
 
-function buildEnvironment(
+async function buildEnvironment(
   flags: Map<string, string[]>,
   thread: InvokingThread | null,
-): SpawnEnvironment {
+  bb: BbPluginApi,
+  projectId: string,
+): Promise<SpawnEnvironment> {
   const environmentId = flagValue(flags, "environment");
   const newEnvironment = flagValue(flags, "new-environment");
   if (environmentId !== undefined && newEnvironment !== undefined) {
@@ -286,18 +288,53 @@ function buildEnvironment(
       throw usageError(`unsupported --new-environment "${newEnvironment}": only "worktree" is supported`);
     }
     const baseBranch = flagValue(flags, "base-branch");
-    return {
-      type: "host",
-      workspace: {
-        type: "managed-worktree",
-        baseBranch: baseBranch !== undefined ? { kind: "named", name: baseBranch } : { kind: "default" },
-      },
-    };
+    return worktreeEnvironment(bb, projectId, baseBranch !== undefined ? { kind: "named", name: baseBranch } : { kind: "default" }, thread);
   }
   if (thread === null || thread.environmentId === null) {
     throw usageError("no environment: pass --environment or --new-environment");
   }
   return { type: "reuse", environmentId: thread.environmentId };
+}
+
+/** The environment provider that sets a worktree up (env files, deps) before the child starts. */
+const PREPARED_WORKTREE_PROVIDER_ID = "prepared-worktree";
+
+/**
+ * A new worktree comes from the prepared-worktree provider when the project
+ * has it registered and available on some machine, and otherwise from core's
+ * built-in managed worktree. The provider needs a machine named: the invoking
+ * thread's own when the provider is available there, else the first machine
+ * where it is. A listing that fails counts as not registered: the spawn still
+ * gets a worktree, just an unprepared one.
+ */
+async function worktreeEnvironment(
+  bb: BbPluginApi,
+  projectId: string,
+  base: WorktreeBase,
+  thread: InvokingThread | null,
+): Promise<SpawnEnvironment> {
+  const managed: SpawnEnvironment = { type: "host", workspace: { type: "managed-worktree", baseBranch: base } };
+  const providers = await bb.sdk.environments.listProviders({ projectId }).catch(() => []);
+  const prepared = providers.find((provider) => provider.id === PREPARED_WORKTREE_PROVIDER_ID);
+  if (prepared === undefined) return managed;
+  const availableHosts = Object.entries(prepared.machineAvailability)
+    .filter(([, availability]) => availability?.status === "available")
+    .map(([hostId]) => hostId);
+  const invokingHost = await invokingHostId(bb, thread);
+  const hostId = availableHosts.find((id) => id === invokingHost) ?? availableHosts[0];
+  if (hostId === undefined) return managed;
+  return {
+    type: "provider",
+    environmentProviderId: PREPARED_WORKTREE_PROVIDER_ID,
+    inputs: { branch: base },
+    machine: { type: "existing", hostId },
+  };
+}
+
+async function invokingHostId(bb: BbPluginApi, thread: InvokingThread | null): Promise<string | undefined> {
+  if (thread === null || thread.environmentId === null) return undefined;
+  const environment = await bb.sdk.environments.get({ environmentId: thread.environmentId }).catch(() => null);
+  return environment?.hostId ?? undefined;
 }
 
 /** How long a spawn waits for the zone reading before going without it. */
@@ -340,11 +377,11 @@ async function cmdSpawn(
   const parentThreadId = flagValue(flags, "parent") ?? ctx.threadId;
 
   const thread = ctx.threadId !== undefined ? await getInvokingThread(bb, ctx.threadId) : null;
-  const environment = buildEnvironment(flags, thread);
   const projectId = thread?.projectId ?? ctx.projectId;
   if (projectId === undefined) {
     throw usageError("no project: run from a thread, or resolve one via --environment");
   }
+  const environment = await buildEnvironment(flags, thread, bb, projectId);
 
   const result = await roles.spawner.spawnByRole({
     roleId,
@@ -746,7 +783,7 @@ export function registerCli(bb: BbPluginApi, roles: RolesDeps): void {
         name: "spawn",
         summary: "Spawn a child by role, on the first candidate with quota.",
         usage:
-          "bb roles spawn --role <id> --prompt <text> [--reasoning <level>] [--title <t>] [--environment <id> | --new-environment worktree --base-branch <ref>] [--parent <thread-id>] [--json]",
+          "bb roles spawn --role <id> --prompt <text> [--reasoning <level>] [--title <t>] [--environment <id> | --new-environment worktree [--base-branch <ref>]] [--parent <thread-id>] [--json]",
       },
       { name: "list", summary: "List every role.", usage: "bb roles list [--json]" },
       { name: "show", summary: "Show one role in full.", usage: "bb roles show <id> [--json]" },

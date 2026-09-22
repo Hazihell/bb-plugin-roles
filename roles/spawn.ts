@@ -38,16 +38,22 @@ import { evaluateCandidates, formatRefusal, mostConstrainedWindow, type Candidat
 import type { QuotaSnapshot, SpawnedRecord, SpawnedRegistry } from "./spawned";
 import type { RoleStore } from "./store";
 
+/** Which branch a new worktree starts from. */
+export type WorktreeBase = { kind: "named"; name: string } | { kind: "default" };
+
 /** The subset of `CreateThreadRequest["environment"]` this plugin uses. */
 export type SpawnEnvironment =
   | { type: "reuse"; environmentId: string }
   | {
       type: "host";
       hostId?: string;
-      workspace: {
-        type: "managed-worktree";
-        baseBranch: { kind: "named"; name: string } | { kind: "default" };
-      };
+      workspace: { type: "managed-worktree"; baseBranch: WorktreeBase };
+    }
+  | {
+      type: "provider";
+      environmentProviderId: string;
+      inputs: { branch: WorktreeBase };
+      machine: { type: "existing"; hostId: string };
     };
 
 export interface SpawnByRoleArgs {
@@ -224,10 +230,6 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     }
     const { picked, level, model, child } = launched;
 
-    if (child.environmentId === null) {
-      throw new Error(`Spawned thread ${child.id} has no environment id`);
-    }
-
     const now = Date.now();
     await spawned.put({
       childThreadId: child.id,
@@ -331,16 +333,16 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 
     let result: SpawnByRoleResult;
     try {
-      const environment = await bb.sdk.environments.get({
-        environmentId: dead.environmentId,
-      });
+      const environmentId = dead.environmentId ?? (await bb.sdk.threads.get({ threadId: dead.childThreadId })).environmentId;
+      if (environmentId === null) throw new Error(`child ${dead.childThreadId} has no environment to reuse`);
+      const environment = await bb.sdk.environments.get({ environmentId });
       result = await spawnByRole({
         roleId: dead.roleId,
         prompt: dead.prompt,
         title: dead.title ?? undefined,
         reasoningOverride: dead.reasoningOverride ?? undefined,
         parentThreadId: dead.parentThreadId ?? undefined,
-        environment: { type: "reuse", environmentId: dead.environmentId },
+        environment: { type: "reuse", environmentId },
         projectId: environment.projectId,
         after: dead.candidateIndex,
       });

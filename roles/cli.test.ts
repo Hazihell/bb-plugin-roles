@@ -129,9 +129,61 @@ describe("bb roles spawn", () => {
     });
   });
 
-  it("builds a managed-worktree environment for --new-environment worktree --base-branch", async () => {
+  const available = { status: "available" };
+  const unavailable = { status: "unavailable", message: "not set up" };
+
+  it.each([
+    {
+      name: "asks prepared-worktree for a named base on the machine it is available on",
+      providers: [{ id: "git-worktree" }, { id: "prepared-worktree", machineAvailability: { host_a: unavailable, host_b: available } }],
+      base: ["--base-branch", "main"],
+      environment: {
+        type: "provider",
+        environmentProviderId: "prepared-worktree",
+        inputs: { branch: { kind: "named", name: "main" } },
+        machine: { type: "existing", hostId: "host_b" },
+      },
+    },
+    {
+      name: "asks prepared-worktree for the default branch when no base is given",
+      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: available } }],
+      base: [],
+      environment: {
+        type: "provider",
+        environmentProviderId: "prepared-worktree",
+        inputs: { branch: { kind: "default" } },
+        machine: { type: "existing", hostId: "host_a" },
+      },
+    },
+    {
+      name: "falls back to a managed worktree on a named base without prepared-worktree",
+      providers: [{ id: "git-worktree" }],
+      base: ["--base-branch", "main"],
+      environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "named", name: "main" } } },
+    },
+    {
+      name: "falls back to a managed worktree on the default branch without prepared-worktree",
+      providers: [{ id: "git-worktree" }],
+      base: [],
+      environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "default" } } },
+    },
+    {
+      name: "falls back to a managed worktree when no machine has prepared-worktree available",
+      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: unavailable } }],
+      base: [],
+      environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "default" } } },
+    },
+    {
+      name: "falls back to a managed worktree when the provider listing fails",
+      providers: new Error("host unreachable"),
+      base: [],
+      environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "default" } } },
+    },
+  ])("--new-environment worktree $name", async ({ providers, base, environment }) => {
     // biome-ignore lint: test double
     const spawnCalls: any[] = [];
+    // biome-ignore lint: test double
+    const listCalls: any[] = [];
     const { harness, store } = setup({
       sdk: {
         threads: {
@@ -141,24 +193,59 @@ describe("bb roles spawn", () => {
             return makeThreadResponse({ id: "th_child_1", environmentId: "env_new" });
           },
         },
+        environments: {
+          // biome-ignore lint: test double
+          listProviders: async (args: any) => {
+            listCalls.push(args);
+            if (providers instanceof Error) throw providers;
+            return providers;
+          },
+        },
       },
       quotaByProvider: { p1: okQuota() },
     });
     store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
 
     const result = await harness.behavior.runCli(
-      ["spawn", "--role", "builder", "--prompt", "x", "--new-environment", "worktree", "--base-branch", "main"],
+      ["spawn", "--role", "builder", "--prompt", "x", "--new-environment", "worktree", ...base],
       { projectId: "proj_1" },
     );
 
     expect(result.exitCode).toBe(0);
-    expect(spawnCalls[0]).toMatchObject({
-      projectId: "proj_1",
-      environment: {
-        type: "host",
-        workspace: { type: "managed-worktree", baseBranch: { kind: "named", name: "main" } },
+    expect(listCalls).toEqual([{ projectId: "proj_1" }]);
+    expect(spawnCalls[0].projectId).toBe("proj_1");
+    expect(spawnCalls[0].environment).toEqual(environment);
+  });
+
+  it("puts a prepared worktree on the invoking thread's machine when the provider is available there", async () => {
+    // biome-ignore lint: test double
+    const spawnCalls: any[] = [];
+    const { harness, store } = setup({
+      sdk: {
+        threads: {
+          get: async () => makeThreadResponse({ id: "th_invoker", projectId: "proj_1", environmentId: "env_invoker" }),
+          // biome-ignore lint: test double
+          spawn: async (args: any) => {
+            spawnCalls.push(args);
+            return makeThreadResponse({ id: "th_child_1", environmentId: "env_new" });
+          },
+        },
+        environments: {
+          get: async () => ({ id: "env_invoker", hostId: "host_b" }),
+          listProviders: async () => [{ id: "prepared-worktree", machineAvailability: { host_a: available, host_b: available } }],
+        },
       },
+      quotaByProvider: { p1: okQuota() },
     });
+    store.create({ id: "builder", description: "Builds.", permissionMode: "full", candidates: [builderCandidate] });
+
+    const result = await harness.behavior.runCli(
+      ["spawn", "--role", "builder", "--prompt", "x", "--new-environment", "worktree"],
+      { threadId: "th_invoker" },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(spawnCalls[0].environment.machine).toEqual({ type: "existing", hostId: "host_b" });
   });
 
   it("exits 1 with one refusal line per candidate when every candidate is skipped", async () => {

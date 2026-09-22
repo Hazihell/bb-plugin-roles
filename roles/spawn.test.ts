@@ -73,6 +73,8 @@ function setup(opts: {
   refusingProviders?: Set<string>;
   /** Providers whose launch fails without a 4xx: the thread may exist. */
   failingProviders?: Map<string, Error>;
+  /** The spawn response has no environment id yet, as when a provider is still creating it. */
+  pendingEnvironment?: boolean;
 }) {
   const spawnCalls: unknown[] = [];
   const sendCalls: unknown[] = [];
@@ -94,8 +96,9 @@ function setup(opts: {
           const failure = opts.failingProviders?.get(args.providerId);
           if (failure !== undefined) throw failure;
           const id = `th_child_${nextChildId++}`;
-          return makeThreadResponse({ id, environmentId: `env_for_${id}` });
+          return makeThreadResponse({ id, environmentId: opts.pendingEnvironment ? null : `env_for_${id}` });
         },
+        get: async ({ threadId }: { threadId: string }) => makeThreadResponse({ id: threadId, environmentId: `env_later_${threadId}` }),
         // biome-ignore lint: test double
         send: async (args: any) => {
           sendCalls.push(args);
@@ -456,6 +459,32 @@ describe("respawn watcher (turn.failed with a blocked rate limit)", () => {
       replacedBy: "th_child_2",
       quotaAtEnd: { remainingPercent: 42, resetsAt: null },
     });
+  });
+
+  it("records a child whose environment is still being created, and respawns into the one it got", async () => {
+    const { harness, spawner, spawned, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, pendingEnvironment: true });
+
+    await spawner.spawnByRole({ ...baseArgs, parentThreadId: "th_parent" });
+    expect(spawned.get("th_child_1")?.environmentId).toBeNull();
+
+    await harness.behavior.emitThreadEvent(
+      "turn.failed",
+      makeTurnFailedEvent({
+        threadId: "th_child_1",
+        rateLimits: {
+          kind: "subscription-window",
+          overageReason: null,
+          overageStatus: null,
+          providerId: "p1",
+          reachedReason: null,
+          status: "blocked",
+          windows: [{ label: "5h", providerKey: null, resetsAtMs: 1000, status: "blocked" }],
+        },
+      }),
+    );
+
+    expect(spawnCalls[1]).toMatchObject({ environment: { type: "reuse", environmentId: "env_later_th_child_1" } });
+    expect(spawned.get("th_child_1")?.stage).toBe("replaced");
   });
 
   it("ignores a blocked event on a thread this plugin never spawned", async () => {

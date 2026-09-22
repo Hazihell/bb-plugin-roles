@@ -21,9 +21,11 @@ Seeding never repeats, even across a full delete, so edits always stick.
 provider has live quota, launches the child under it, and hands back both
 ids. `--reasoning <level>` overrides every candidate's default level for
 that one spawn. `--environment <id>` or `--new-environment worktree
---base-branch <ref>` names where the child runs; an omitted flag reuses the
+[--base-branch <ref>]` names where the child runs; an omitted flag reuses the
 invoking thread's own environment, and `--parent` defaults to that thread
-too.
+too. A new worktree comes from the `prepared-worktree` environment provider
+when the project has it registered, which runs the repo's setup before the
+child starts, and from core's built-in worktree otherwise.
 
 Every candidate is skipped when its provider's live usage falls at or below
 a threshold setting (default 5%), when its status can't run (unauthenticated,

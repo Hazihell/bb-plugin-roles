@@ -35,8 +35,10 @@ export interface SpawnedRecord {
   title: string | null;
   parentThreadId: string | null;
   /** The real environment id from the child's `ThreadResponse`, never the
-   * (possibly unresolved, e.g. "host") environment passed to spawn. */
-  environmentId: string;
+   * (possibly unresolved, e.g. "host") environment passed to spawn. Null when
+   * a provider was still creating the environment at spawn time; the respawn
+   * watcher then reads it from the child thread. */
+  environmentId: string | null;
   reasoningOverride: ReasoningLevel | null;
   stage: SpawnedStage;
   replacedBy: string | null;
@@ -66,7 +68,7 @@ const spawnedRecordSchema = z.object({
   prompt: z.string(),
   title: z.string().nullable(),
   parentThreadId: z.string().nullable(),
-  environmentId: z.string().min(1),
+  environmentId: z.string().min(1).nullable(),
   reasoningOverride: reasoningLevelSchema.nullable(),
   stage: spawnedStageSchema,
   replacedBy: z.string().nullable(),

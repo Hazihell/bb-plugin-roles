@@ -35,7 +35,7 @@ rather than a new role.
 
 ```
 bb roles spawn --role <id> --prompt <text> [--reasoning <level>] [--title <t>]
-  [--environment <id> | --new-environment worktree --base-branch <ref>]
+  [--environment <id> | --new-environment worktree [--base-branch <ref>]]
   [--parent <thread-id>] [--json]
 bb roles list [--json]
 bb roles show <id> [--json]
@@ -57,7 +57,16 @@ bb roles context [thread-id] [--json]
 
 `spawn` reuses the invoking thread's own environment and project when
 `--environment` / `--new-environment` is omitted; with neither flag and no
-thread context to fall back on, it fails with a one-line error. `create` and
+thread context to fall back on, it fails with a one-line error.
+`--new-environment worktree` asks the `prepared-worktree` environment provider
+for the worktree when the project has it registered and available on a
+machine, so the child starts with the repo's setup done (env files copied,
+dependencies installed). The worktree goes on the invoking thread's machine
+when the provider is available there, else on the first machine where it is.
+Otherwise spawn falls back to core's built-in managed worktree, which does no
+setup. Either
+way the worktree branches from `--base-branch`, or from the project's default
+branch when that is omitted. `create` and
 `update` warn on stderr, never block, when a candidate's model is missing
 from its provider's live model list. `--instruction-file` and `import`'s file
 argument are read on the INVOKING machine, never the server: `--machine
