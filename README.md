@@ -59,14 +59,20 @@ bb roles context [thread-id] [--json]
 `--environment` / `--new-environment` is omitted; with neither flag and no
 thread context to fall back on, it fails with a one-line error.
 `--new-environment worktree` asks the `prepared-worktree` environment provider
-for the worktree when the project has it registered and available on a
-machine, so the child starts with the repo's setup done (env files copied,
-dependencies installed). The worktree goes on the invoking thread's machine
-when the provider is available there, else on the first machine where it is.
-Otherwise spawn falls back to core's built-in managed worktree, which does no
-setup. Either
-way the worktree branches from `--base-branch`, or from the project's default
-branch when that is omitted. `create` and
+for the worktree when the project has it registered, so the child starts with
+the repo's setup done (env files copied, dependencies installed). It names a
+machine: the invoking thread's when the provider is usable there, else one
+reported available, else one with no availability reading yet (BB re-checks
+the machine when it creates the thread). Only when the provider is not
+registered, the listing fails, or every machine reports it `unavailable` or
+`setup-required` does spawn fall back to core's built-in managed worktree,
+which does no setup; it then prints one `using an unprepared worktree: <why>`
+line on stderr. Either way the worktree branches from `--base-branch`, or from
+the project's default branch when that is omitted. A provider creates the
+environment after the thread exists, so `--json`'s `environmentId` is `null`
+for a prepared worktree; `bb thread show <childId>` names it once attached. A
+launch refused for a prepared worktree is not retried on the next candidate,
+since every candidate would hit the same environment error. `create` and
 `update` warn on stderr, never block, when a candidate's model is missing
 from its provider's live model list. `--instruction-file` and `import`'s file
 argument are read on the INVOKING machine, never the server: `--machine

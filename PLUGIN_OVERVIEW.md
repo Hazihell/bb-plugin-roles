@@ -25,7 +25,9 @@ that one spawn. `--environment <id>` or `--new-environment worktree
 invoking thread's own environment, and `--parent` defaults to that thread
 too. A new worktree comes from the `prepared-worktree` environment provider
 when the project has it registered, which runs the repo's setup before the
-child starts, and from core's built-in worktree otherwise.
+child starts, and from core's built-in worktree otherwise, with one stderr
+line saying why. A prepared worktree is attached after the thread exists, so
+`--json` reports its `environmentId` as `null`.
 
 Every candidate is skipped when its provider's live usage falls at or below
 a threshold setting (default 5%), when its status can't run (unauthenticated,

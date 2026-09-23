@@ -222,6 +222,9 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
         break;
       } catch (error) {
         if (!isLaunchRefusal(error)) throw error;
+        // A provider environment refuses the same way for every candidate
+        // (bad inputs, no machine): trying the next one repeats the error.
+        if (args.environment.type === "provider") throw error;
         refusals.push(`${picked.candidate.provider} ${model} (${level}): ${error instanceof Error ? error.message : String(error)}`);
       }
     }

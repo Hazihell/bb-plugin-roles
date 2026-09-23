@@ -661,6 +661,19 @@ describe("spawnByRole launch refusals", () => {
     expect(spawned.list()).toHaveLength(0);
   });
 
+  it("stops at the first refusal when the environment comes from a provider, since every candidate would repeat it", async () => {
+    const { spawner, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1", "p2"]) });
+    const environment = {
+      type: "provider" as const,
+      environmentProviderId: "prepared-worktree",
+      inputs: { branch: { kind: "default" as const } },
+      machine: { type: "existing" as const, hostId: "host_a" },
+    };
+
+    await expect(spawner.spawnByRole({ ...baseArgs, environment })).rejects.toThrow(/^HTTP 400: Provider p1/);
+    expect(spawnCalls).toHaveLength(1);
+  });
+
   it("rethrows a failure that is not a 4xx without trying the next candidate, since the thread may exist", async () => {
     for (const failure of [
       Object.assign(new Error("HTTP 503: unavailable"), { name: "BbHttpError", status: 503 }),

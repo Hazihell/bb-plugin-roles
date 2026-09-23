@@ -274,14 +274,14 @@ async function buildEnvironment(
   thread: InvokingThread | null,
   bb: BbPluginApi,
   projectId: string,
-): Promise<SpawnEnvironment> {
+): Promise<BuiltEnvironment> {
   const environmentId = flagValue(flags, "environment");
   const newEnvironment = flagValue(flags, "new-environment");
   if (environmentId !== undefined && newEnvironment !== undefined) {
     throw usageError("pass only one of --environment or --new-environment");
   }
   if (environmentId !== undefined) {
-    return { type: "reuse", environmentId };
+    return { environment: { type: "reuse", environmentId } };
   }
   if (newEnvironment !== undefined) {
     if (newEnvironment !== "worktree") {
@@ -293,18 +293,23 @@ async function buildEnvironment(
   if (thread === null || thread.environmentId === null) {
     throw usageError("no environment: pass --environment or --new-environment");
   }
-  return { type: "reuse", environmentId: thread.environmentId };
+  return { environment: { type: "reuse", environmentId: thread.environmentId } };
 }
 
 /** The environment provider that sets a worktree up (env files, deps) before the child starts. */
 const PREPARED_WORKTREE_PROVIDER_ID = "prepared-worktree";
 
+/** The environment to spawn into, and why spawn fell back to an unprepared worktree when it did. */
+type BuiltEnvironment = { environment: SpawnEnvironment; fallback?: string };
+
 /**
  * A new worktree comes from the prepared-worktree provider when the project
- * has it registered and available on some machine, and otherwise from core's
- * built-in managed worktree. The provider needs a machine named: the invoking
- * thread's own when the provider is available there, else the first machine
- * where it is. A listing that fails counts as not registered: the spawn still
+ * has it registered, and otherwise from core's built-in managed worktree. The
+ * provider needs a machine named. A machine the listing reports as
+ * unavailable or needing setup is out; one with no reading yet (BB's
+ * background probe has not answered) is in, since core re-checks the chosen
+ * machine when it creates the thread. The invoking thread's machine wins when
+ * it is in. A listing that fails counts as not registered: the spawn still
  * gets a worktree, just an unprepared one.
  */
 async function worktreeEnvironment(
@@ -312,22 +317,38 @@ async function worktreeEnvironment(
   projectId: string,
   base: WorktreeBase,
   thread: InvokingThread | null,
-): Promise<SpawnEnvironment> {
-  const managed: SpawnEnvironment = { type: "host", workspace: { type: "managed-worktree", baseBranch: base } };
-  const providers = await bb.sdk.environments.listProviders({ projectId }).catch(() => []);
+): Promise<BuiltEnvironment> {
+  const managed = (fallback: string): BuiltEnvironment => ({
+    environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: base } },
+    fallback: `using an unprepared worktree: ${fallback}`,
+  });
+  let providers: Awaited<ReturnType<typeof bb.sdk.environments.listProviders>>;
+  try {
+    providers = await bb.sdk.environments.listProviders({ projectId });
+  } catch (error) {
+    return managed(`listing environment providers failed (${error instanceof Error ? error.message : String(error)})`);
+  }
   const prepared = providers.find((provider) => provider.id === PREPARED_WORKTREE_PROVIDER_ID);
-  if (prepared === undefined) return managed;
-  const availableHosts = Object.entries(prepared.machineAvailability)
-    .filter(([, availability]) => availability?.status === "available")
-    .map(([hostId]) => hostId);
+  if (prepared === undefined) return managed(`${PREPARED_WORKTREE_PROVIDER_ID} is not registered for project ${projectId}`);
+  const machines = Object.entries(prepared.machineAvailability);
+  const usable = machines.filter(([, availability]) => availability === null || availability.status === "available");
   const invokingHost = await invokingHostId(bb, thread);
-  const hostId = availableHosts.find((id) => id === invokingHost) ?? availableHosts[0];
-  if (hostId === undefined) return managed;
+  const hostId =
+    usable.find(([id]) => id === invokingHost)?.[0] ??
+    usable.find(([, availability]) => availability !== null)?.[0] ??
+    usable[0]?.[0];
+  if (hostId === undefined) {
+    // Every machine left is one the listing ruled out, so each carries a message.
+    const reasons = machines.map(([id, availability]) => `${id} ${availability !== null && "message" in availability ? `${availability.status}: ${availability.message}` : "unknown"}`);
+    return managed(`${PREPARED_WORKTREE_PROVIDER_ID} is not usable on any machine${reasons.length === 0 ? "" : ` (${reasons.join("; ")})`}`);
+  }
   return {
-    type: "provider",
-    environmentProviderId: PREPARED_WORKTREE_PROVIDER_ID,
-    inputs: { branch: base },
-    machine: { type: "existing", hostId },
+    environment: {
+      type: "provider",
+      environmentProviderId: PREPARED_WORKTREE_PROVIDER_ID,
+      inputs: { branch: base },
+      machine: { type: "existing", hostId },
+    },
   };
 }
 
@@ -381,7 +402,7 @@ async function cmdSpawn(
   if (projectId === undefined) {
     throw usageError("no project: run from a thread, or resolve one via --environment");
   }
-  const environment = await buildEnvironment(flags, thread, bb, projectId);
+  const { environment, fallback } = await buildEnvironment(flags, thread, bb, projectId);
 
   const result = await roles.spawner.spawnByRole({
     roleId,
@@ -397,6 +418,7 @@ async function cmdSpawn(
   // smart zone, so it does not have to remember to check.
   const zoneTokens = smartZoneTokens ?? DEFAULT_SMART_ZONE_TOKENS;
   const reading = await spawnZoneReading(bb, ctx.threadId);
+  const fallbackLine = fallback === undefined ? undefined : `${fallback}\n`;
 
   if (hasFlag(flags, "json")) {
     return {
@@ -416,12 +438,14 @@ async function cmdSpawn(
           ? null
           : { usedTokens: reading.usedTokens, zoneTokens, source: reading.source, estimated: reading.estimated },
       })}\n`,
+      stderr: fallbackLine,
     };
   }
   const zoneLine = reading === null ? "" : `${formatZoneLine(reading, zoneTokens)}\n`;
   return {
     exitCode: 0,
     stdout: `Spawned ${result.child.id} as ${roleId} on ${result.candidate.provider} ${resolvedModel} (${result.level})\n${zoneLine}`,
+    stderr: fallbackLine,
   };
 }
 

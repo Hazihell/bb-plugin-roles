@@ -156,6 +156,28 @@ describe("bb roles spawn", () => {
       },
     },
     {
+      name: "asks prepared-worktree on a machine with no availability reading yet",
+      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: null } }],
+      base: [],
+      environment: {
+        type: "provider",
+        environmentProviderId: "prepared-worktree",
+        inputs: { branch: { kind: "default" } },
+        machine: { type: "existing", hostId: "host_a" },
+      },
+    },
+    {
+      name: "prefers a machine reported available over one with no reading yet",
+      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: null, host_b: available } }],
+      base: [],
+      environment: {
+        type: "provider",
+        environmentProviderId: "prepared-worktree",
+        inputs: { branch: { kind: "default" } },
+        machine: { type: "existing", hostId: "host_b" },
+      },
+    },
+    {
       name: "falls back to a managed worktree on a named base without prepared-worktree",
       providers: [{ id: "git-worktree" }],
       base: ["--base-branch", "main"],
@@ -168,8 +190,8 @@ describe("bb roles spawn", () => {
       environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "default" } } },
     },
     {
-      name: "falls back to a managed worktree when no machine has prepared-worktree available",
-      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: unavailable } }],
+      name: "falls back to a managed worktree when every machine rules prepared-worktree out",
+      providers: [{ id: "prepared-worktree", machineAvailability: { host_a: unavailable, host_b: { status: "setup-required", message: "run setup" } } }],
       base: [],
       environment: { type: "host", workspace: { type: "managed-worktree", baseBranch: { kind: "default" } } },
     },
@@ -215,9 +237,12 @@ describe("bb roles spawn", () => {
     expect(listCalls).toEqual([{ projectId: "proj_1" }]);
     expect(spawnCalls[0].projectId).toBe("proj_1");
     expect(spawnCalls[0].environment).toEqual(environment);
+    // A fallback says so, and why, on one stderr line; a prepared worktree says nothing.
+    if (environment.type === "provider") expect(result.stderr ?? "").toBe("");
+    else expect(result.stderr).toMatch(/^using an unprepared worktree: .+\n$/);
   });
 
-  it("puts a prepared worktree on the invoking thread's machine when the provider is available there", async () => {
+  it("puts a prepared worktree on the invoking thread's machine when the provider is usable there", async () => {
     // biome-ignore lint: test double
     const spawnCalls: any[] = [];
     const { harness, store } = setup({
@@ -232,7 +257,7 @@ describe("bb roles spawn", () => {
         },
         environments: {
           get: async () => ({ id: "env_invoker", hostId: "host_b" }),
-          listProviders: async () => [{ id: "prepared-worktree", machineAvailability: { host_a: available, host_b: available } }],
+          listProviders: async () => [{ id: "prepared-worktree", machineAvailability: { host_a: available, host_b: null } }],
         },
       },
       quotaByProvider: { p1: okQuota() },
