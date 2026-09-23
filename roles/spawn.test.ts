@@ -73,6 +73,8 @@ function setup(opts: {
   refusingProviders?: Set<string>;
   /** Providers whose launch fails without a 4xx: the thread may exist. */
   failingProviders?: Map<string, Error>;
+  /** One refusal message for every refusing provider, as an environment error would be. */
+  refusalMessage?: string;
   /** The spawn response has no environment id yet, as when a provider is still creating it. */
   pendingEnvironment?: boolean;
 }) {
@@ -91,7 +93,8 @@ function setup(opts: {
           spawnCalls.push(args);
           if (opts.refusingProviders?.has(args.providerId)) {
             // Shaped like the SDK's BbHttpError: a message and a numeric status.
-            throw Object.assign(new Error(`HTTP 400: Provider ${args.providerId} does not support ${args.reasoningLevel} reasoning level.`), { name: "BbHttpError", status: 400 });
+            const message = opts.refusalMessage ?? `HTTP 400: Provider ${args.providerId} does not support ${args.reasoningLevel} reasoning level.`;
+            throw Object.assign(new Error(message), { name: "BbHttpError", status: 400 });
           }
           const failure = opts.failingProviders?.get(args.providerId);
           if (failure !== undefined) throw failure;
@@ -661,17 +664,34 @@ describe("spawnByRole launch refusals", () => {
     expect(spawned.list()).toHaveLength(0);
   });
 
-  it("stops at the first refusal when the environment comes from a provider, since every candidate would repeat it", async () => {
-    const { spawner, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1", "p2"]) });
-    const environment = {
-      type: "provider" as const,
-      environmentProviderId: "prepared-worktree",
-      inputs: { branch: { kind: "default" as const } },
-      machine: { type: "existing" as const, hostId: "host_a" },
-    };
+  const providerEnvironment = {
+    type: "provider" as const,
+    environmentProviderId: "prepared-worktree",
+    inputs: { branch: { kind: "default" as const } },
+    machine: { type: "existing" as const, hostId: "host_a" },
+  };
 
-    await expect(spawner.spawnByRole({ ...baseArgs, environment })).rejects.toThrow(/^HTTP 400: Provider p1/);
-    expect(spawnCalls).toHaveLength(1);
+  it("moves past a candidate-specific refusal when the environment comes from a provider", async () => {
+    const { spawner, spawnCalls } = setup({ byProvider: { p1: okQuota(), p2: okQuota() }, refusingProviders: new Set(["p1"]) });
+
+    const result = await spawner.spawnByRole({ ...baseArgs, environment: providerEnvironment });
+
+    expect(result.candidate.provider).toBe("p2");
+    expect(spawnCalls).toHaveLength(2);
+  });
+
+  it("surfaces the one environment error once two candidates in a row refuse with it", async () => {
+    const refusalMessage = 'HTTP 400: The "prepared-worktree" environment provider requires a machine selection';
+    const { spawner, spawnCalls } = setup({
+      byProvider: { p1: okQuota(), p2: okQuota() },
+      refusingProviders: new Set(["p1", "p2"]),
+      refusalMessage,
+    });
+
+    const failure = spawner.spawnByRole({ ...baseArgs, environment: providerEnvironment });
+
+    await expect(failure).rejects.toMatchObject({ message: refusalMessage });
+    expect(spawnCalls).toHaveLength(2);
   });
 
   it("rethrows a failure that is not a 4xx without trying the next candidate, since the thread may exist", async () => {

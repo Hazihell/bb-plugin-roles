@@ -71,8 +71,9 @@ line on stderr. Either way the worktree branches from `--base-branch`, or from
 the project's default branch when that is omitted. A provider creates the
 environment after the thread exists, so `--json`'s `environmentId` is `null`
 for a prepared worktree; `bb thread show <childId>` names it once attached. A
-launch refused for a prepared worktree is not retried on the next candidate,
-since every candidate would hit the same environment error. `create` and
+refusal for a prepared worktree moves to the next candidate as usual, but two
+candidates in a row refusing with the same message mean the environment
+request is at fault: spawn stops there and surfaces that one message. `create` and
 `update` warn on stderr, never block, when a candidate's model is missing
 from its provider's live model list. `--instruction-file` and `import`'s file
 argument are read on the INVOKING machine, never the server: `--machine

@@ -198,6 +198,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
     // rethrows at once, since the thread may exist and a second launch would
     // duplicate it.
     const refusals: string[] = [];
+    let lastRefusal: string | null = null;
     let launched: { picked: CandidateEvaluation; level: ReasoningLevel; model: string; child: Awaited<ReturnType<typeof bb.sdk.threads.spawn>> } | null = null;
     for (const picked of usable) {
       const level = args.reasoningOverride ?? picked.candidate.reasoningLevel;
@@ -222,10 +223,13 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
         break;
       } catch (error) {
         if (!isLaunchRefusal(error)) throw error;
-        // A provider environment refuses the same way for every candidate
-        // (bad inputs, no machine): trying the next one repeats the error.
-        if (args.environment.type === "provider") throw error;
-        refusals.push(`${picked.candidate.provider} ${model} (${level}): ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        // A provider environment that refuses (bad inputs, no machine) does so
+        // with the same message for every candidate: two in a row means the
+        // environment is the problem, and the rest would only repeat it.
+        if (args.environment.type === "provider" && message === lastRefusal) throw error;
+        lastRefusal = message;
+        refusals.push(`${picked.candidate.provider} ${model} (${level}): ${message}`);
       }
     }
     if (launched === null) {
